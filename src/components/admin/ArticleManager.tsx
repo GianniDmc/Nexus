@@ -416,26 +416,31 @@ export function ArticleManager() {
                 </div>
             </div>
 
-            {/* Floating Bulk Action Bar */}
+            {/* Floating Bulk Action Bar (Fixed Position) */}
             {selectedIds.size > 0 && (
-                <div className="absolute bottom-16 left-1/2 -translate-x-1/2 bg-foreground text-background px-6 py-3 rounded-full shadow-xl flex items-center gap-4 animate-in slide-in-from-bottom-5 z-20">
-                    <span className="font-bold text-sm whitespace-nowrap">{selectedIds.size} sélectionné(s)</span>
-                    <div className="h-4 w-px bg-background/30" />
+                <div className="fixed bottom-10 left-1/2 -translate-x-1/2 bg-zinc-900/95 backdrop-blur-md text-zinc-50 border border-white/10 px-6 py-3 rounded-full shadow-2xl flex items-center gap-6 animate-in slide-in-from-bottom-5 z-[100]">
+                    <div className="flex items-center gap-2 pr-4 border-r border-white/10">
+                        <span className="font-bold text-sm whitespace-nowrap">{selectedIds.size} sur cette page</span>
+                    </div>
+
                     <button
                         onClick={() => handleBulkAction('publish')}
                         className="flex items-center gap-2 hover:text-green-400 font-medium text-sm transition-colors"
                     >
-                        <CheckCircle className="w-4 h-4" /> Publier
+                        <CheckCircle className="w-4 h-4 fill-current/10" /> Publier
                     </button>
+
                     <button
                         onClick={() => handleBulkAction('reject')}
                         className="flex items-center gap-2 hover:text-red-400 font-medium text-sm transition-colors"
                     >
-                        <XCircle className="w-4 h-4" /> Rejeter
+                        <XCircle className="w-4 h-4 fill-current/10" /> Rejeter
                     </button>
+
                     <button
                         onClick={() => setSelectedIds(new Set())}
-                        className="ml-2 hover:opacity-70"
+                        className="ml-2 p-1 hover:bg-white/10 rounded-full transition-colors"
+                        title="Annuler la sélection"
                     >
                         <X className="w-4 h-4" />
                     </button>
