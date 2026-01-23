@@ -284,7 +284,7 @@ export default function NewsFeed() {
                 key={article.id}
                 onClick={() => selectArticle(article.id)}
                 className={`group cursor-pointer p-4 rounded-xl border transition-all duration-300 relative ${isSelected
-                  ? 'bg-accent/5 border-accent/50 shadow-md transform scale-[1.02]'
+                  ? 'bg-accent/5 border-accent/50 shadow-md ring-1 ring-accent/20'
                   : isRead
                     ? 'bg-card/30 border-border/20 opacity-60'
                     : 'bg-card/50 border-border/40 hover:bg-card hover:border-border'
