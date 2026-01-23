@@ -168,14 +168,16 @@ EXIGENCES:
 1. TITRE: Accrocheur, factuel, en français.
 2. CONTENU: 3-4 paragraphes. Contexte, faits, analyse. Pas de jargon inutile.
 3. TON: Professionnel, neutre, précis. Inspiré du NYT/Les Échos.
-4. LANGUE: Français impeccable.
+5. CATEGORIE: Choisis LA plus pertinente dans cette liste exacte :
+   [IA, Hardware, Software, Cyber-Sécurité, Startups, Business, Dev, Science, Mobile, Gaming, Cloud, Crypto, General]
 
 FORMAT JSON:
 {
   "title": "Titre en français",
   "content": "L'article complet réécrit...",
   "tldr": "Résumé en 2 phrases maximum.",
-  "impact": "Pourquoi c'est important (1 phrase)."
+  "impact": "Pourquoi c'est important (1 phrase).",
+  "category": "Categorie_Choisie"
 }`;
 
   try {
