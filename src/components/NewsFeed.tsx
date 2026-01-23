@@ -227,7 +227,7 @@ export default function NewsFeed() {
       <div className="md:col-span-5 flex flex-col h-[calc(100vh-100px)]">
 
         {/* Controls Header (Sticky) */}
-        <div className="sticky top-0 z-10 bg-background/95 backdrop-blur py-4 border-b border-border/40 mb-2">
+        <div className="sticky top-0 z-10 bg-background/95 backdrop-blur py-4 border-b border-border/40 mb-2 overflow-hidden">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-serif font-medium text-primary flex items-center gap-2">
               <Filter className="w-4 h-4 text-accent" />
