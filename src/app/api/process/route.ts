@@ -153,6 +153,7 @@ export async function GET() {
           if (topArticle) {
             await supabase.from('articles').update({
               title: rewritten.title,
+              category: rewritten.category, // Save AI-determined category
               summary_short: JSON.stringify({
                 tldr: rewritten.tldr,
                 full: rewritten.content,
