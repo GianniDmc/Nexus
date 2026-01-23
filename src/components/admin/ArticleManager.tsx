@@ -47,6 +47,7 @@ export function ArticleManager() {
     const [loadingCluster, setLoadingCluster] = useState(false);
     const [isRewriting, setIsRewriting] = useState<string | null>(null); // ID of article being rewritten
     const [viewArticle, setViewArticle] = useState<Article | null>(null);
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set()); // Bulk Selection State
 
     const parseSummary = (json: string | null) => {
         if (!json) return null;
@@ -138,6 +139,42 @@ export function ArticleManager() {
         setIsRewriting(null);
     };
 
+    const handleBulkAction = async (action: 'publish' | 'reject') => {
+        if (selectedIds.size === 0) return;
+        if (!confirm(`Confirmer l'action "${action}" sur ${selectedIds.size} articles ?`)) return;
+
+        try {
+            const updates = action === 'publish'
+                ? { final_score: 8, is_published: true }
+                : { final_score: 0 }; // Reject
+
+            await fetch('/api/admin/articles', {
+                method: 'PATCH',
+                body: JSON.stringify({ ids: Array.from(selectedIds), updates })
+            });
+
+            setSelectedIds(new Set()); // Clear selection
+            fetchArticles();
+        } catch (e) {
+            console.error("Bulk action failed", e);
+        }
+    };
+
+    const toggleSelectAll = () => {
+        if (selectedIds.size === articles.length) {
+            setSelectedIds(new Set());
+        } else {
+            setSelectedIds(new Set(articles.map(a => a.id)));
+        }
+    };
+
+    const toggleSelection = (id: string) => {
+        const newSet = new Set(selectedIds);
+        if (newSet.has(id)) newSet.delete(id);
+        else newSet.add(id);
+        setSelectedIds(newSet);
+    };
+
     const viewCluster = async (clusterId: string) => {
         setSelectedClusterId(clusterId);
         setLoadingCluster(true);
@@ -200,6 +237,14 @@ export function ArticleManager() {
                 <table className="w-full text-left text-sm">
                     <thead className="bg-secondary/20 text-muted-foreground font-medium border-b border-border">
                         <tr>
+                            <th className="px-4 py-3 w-10">
+                                <input
+                                    type="checkbox"
+                                    checked={articles.length > 0 && selectedIds.size === articles.length}
+                                    onChange={toggleSelectAll}
+                                    className="rounded border-border bg-background focus:ring-accent accent-accent"
+                                />
+                            </th>
                             <th className="px-4 py-3 w-16 cursor-pointer hover:bg-secondary/30 transition-colors" onClick={() => handleSort('final_score')}>
                                 <div className="flex items-center gap-1">Score <ArrowUpDown className="w-3 h-3 text-muted" /></div>
                             </th>
@@ -225,7 +270,15 @@ export function ArticleManager() {
                             </tr>
                         ) : (
                             articles.map((article) => (
-                                <tr key={article.id} className="hover:bg-secondary/10 transition-colors group">
+                                <tr key={article.id} className={`hover:bg-secondary/10 transition-colors group ${selectedIds.has(article.id) ? 'bg-accent/5' : ''}`}>
+                                    <td className="px-4 py-3">
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedIds.has(article.id)}
+                                            onChange={() => toggleSelection(article.id)}
+                                            className="rounded border-border bg-background focus:ring-accent accent-accent"
+                                        />
+                                    </td>
                                     <td className="px-4 py-3">
                                         <span className={`inline-block px-2 py-1 rounded text-xs font-bold ${(article.final_score || 0) >= 6
                                             ? 'bg-green-500/10 text-green-500'
@@ -362,6 +415,32 @@ export function ArticleManager() {
                     </button>
                 </div>
             </div>
+
+            {/* Floating Bulk Action Bar */}
+            {selectedIds.size > 0 && (
+                <div className="absolute bottom-16 left-1/2 -translate-x-1/2 bg-foreground text-background px-6 py-3 rounded-full shadow-xl flex items-center gap-4 animate-in slide-in-from-bottom-5 z-20">
+                    <span className="font-bold text-sm whitespace-nowrap">{selectedIds.size} sélectionné(s)</span>
+                    <div className="h-4 w-px bg-background/30" />
+                    <button
+                        onClick={() => handleBulkAction('publish')}
+                        className="flex items-center gap-2 hover:text-green-400 font-medium text-sm transition-colors"
+                    >
+                        <CheckCircle className="w-4 h-4" /> Publier
+                    </button>
+                    <button
+                        onClick={() => handleBulkAction('reject')}
+                        className="flex items-center gap-2 hover:text-red-400 font-medium text-sm transition-colors"
+                    >
+                        <XCircle className="w-4 h-4" /> Rejeter
+                    </button>
+                    <button
+                        onClick={() => setSelectedIds(new Set())}
+                        className="ml-2 hover:opacity-70"
+                    >
+                        <X className="w-4 h-4" />
+                    </button>
+                </div>
+            )}
 
             {/* Cluster Modal */}
             {selectedClusterId && (

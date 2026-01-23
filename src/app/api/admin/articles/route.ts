@@ -94,23 +94,27 @@ export async function GET(request: Request) {
 
 export async function PATCH(request: Request) {
     try {
-        const { id, updates } = await request.json();
+        const { id, ids, updates } = await request.json();
 
-        // Updates can be { final_score: 10 } to force publish, or { final_score: 0 } to reject
-        // or maybe updating title/summary.
+        // Support both single ID and multiple IDs
+        const startQuery = supabase.from('articles').update(updates);
 
-        const { data, error } = await supabase
-            .from('articles')
-            .update(updates)
-            .eq('id', id)
-            .select()
-            .single();
+        let query;
+        if (ids && Array.isArray(ids) && ids.length > 0) {
+            query = startQuery.in('id', ids);
+        } else if (id) {
+            query = startQuery.eq('id', id);
+        } else {
+            throw new Error('ID or IDs required');
+        }
+
+        const { data, error } = await query.select();
 
         if (error) throw error;
 
-        return NextResponse.json({ success: true, article: data });
+        return NextResponse.json({ success: true, articles: data });
     } catch (error) {
-        return NextResponse.json({ error: 'Failed to update article' }, { status: 500 });
+        return NextResponse.json({ error: 'Failed to update article(s)' }, { status: 500 });
     }
 }
 
