@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import {
@@ -72,12 +72,6 @@ export function AppShell({ children }: AppShellProps) {
                 params.delete('search');
               }
               window.history.replaceState(null, '', `?${params.toString()}`);
-              // Dispatch a custom event to notify NewsFeed immediately without full reload if possible, 
-              // but for now relying on URL param which NewsFeed should listen to? 
-              // Next.js useSearchParams might not trigger re-render on window.history updates immediately 
-              // so better to use useRouter().push or router.replace but that might be heavy on keystroke.
-              // Let's use simple Enter key for robustness or debounce if we had it.
-              // Actually, let's keep it simple: On Change with debounce is best, but for MVP: onKeyDown Enter.
             }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
@@ -85,7 +79,6 @@ export function AppShell({ children }: AppShellProps) {
                 const params = new URLSearchParams(window.location.search);
                 if (target.value) params.set('search', target.value);
                 else params.delete('search');
-                // Force navigation to trigger updates
                 window.location.search = params.toString();
               }
             }}
@@ -93,15 +86,17 @@ export function AppShell({ children }: AppShellProps) {
           />
         </div>
 
-        {/* Navigation Links */}
+        {/* Navigation Links (Wrapped in Suspense) */}
         <nav className="flex-1 overflow-y-auto py-6 space-y-6">
           <div>
             <h3 className="px-2 text-[10px] font-bold uppercase tracking-widest text-muted mb-2">À la Une</h3>
-            <div className="space-y-1">
-              <SidebarLink href="/?filter=recent" icon={<Sparkles className="w-4 h-4" />} label="Aujourd'hui" />
-              <SidebarLink href="/?filter=archives" icon={<Archive className="w-4 h-4" />} label="Archives" />
-              <SidebarLink href="/?filter=saved" icon={<Bookmark className="w-4 h-4" />} label="Ma liste" />
-            </div>
+            <Suspense fallback={<div className="animate-pulse space-y-2"><div className="h-8 bg-muted/20 rounded"></div><div className="h-8 bg-muted/20 rounded"></div></div>}>
+              <div className="space-y-1">
+                <SidebarLink href="/?filter=recent" icon={<Sparkles className="w-4 h-4" />} label="Aujourd'hui" />
+                <SidebarLink href="/?filter=archives" icon={<Archive className="w-4 h-4" />} label="Archives" />
+                <SidebarLink href="/?filter=saved" icon={<Bookmark className="w-4 h-4" />} label="Ma liste" />
+              </div>
+            </Suspense>
           </div>
         </nav>
 

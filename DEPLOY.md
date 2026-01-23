@@ -62,6 +62,30 @@ Actuellement, l'application met à jour les news quand tu as l'onglet Admin ouve
 
 Cela "pingera" ton API régulièrement pour lancer la récupération et le traitement des news, même si tu dors ! 😴
 
+**Option 2 : Supabase Cron (Directement dans la base)**
+Si tu préfères tout gérer dans Supabase :
+1.  Va dans **SQL Editor** sur Supabase.
+2.  Active les extensions :
+    ```sql
+    create extension if not exists pg_cron;
+    create extension if not exists pg_net;
+    ```
+3.  Crée le job (remplace l'URL et ta clé API Service Role pour sécuriser) :
+    ```sql
+    select cron.schedule(
+      'auto-process-every-15m', -- Nom du job
+      '*/15 * * * *',           -- Cron (toutes les 15 min)
+      $$
+      select
+        net.http_get(
+            url:='https://ton-projet-vercel.app/api/process',
+            headers:='{"Authorization": "Basic ... (si admin protégé) ou rien si public"}'
+        ) as request_id;
+      $$
+    );
+    ```
+    *Note : Cette méthode nécessite que ton projet Database ait accès à internet via `pg_net`.*
+
 ## 5. Sécurité (Optionnel mais recommandé)
 La page `/admin` est actuellement accessible à tous si l'URL est connue.
 Pour une version production, il serait idéal d'ajouter une authentification simple (Middleware Next.js) ou d'utiliser Supabase Auth sur cette route.
