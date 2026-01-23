@@ -340,117 +340,137 @@ export default function NewsFeed() {
         </div>
       </div>
 
-      {/* RIGHT COLUMN: Preview (Sticky) */}
-      <div className="hidden md:block md:col-span-7 sticky top-6 h-[calc(100vh-100px)] overflow-hidden">
-        <AnimatePresence mode="wait">
-          {selectedArticle ? (
+      {/* RIGHT COLUMN: Preview (Desktop: Sticky, Mobile: Full Screen Overlay) */}
+      <AnimatePresence mode="wait">
+        {(selectedArticle || (typeof window !== 'undefined' && window.innerWidth >= 768)) && (
+          <div className={`
+            md:block md:col-span-7 md:sticky md:top-6 md:h-[calc(100vh-100px)] md:overflow-hidden
+            ${selectedArticle
+              ? 'fixed inset-0 z-50 bg-background md:static md:bg-transparent md:z-auto flex flex-col'
+              : 'hidden md:block'}
+          `}>
+            {/* Mobile Close Button Header */}
+            <div className="md:hidden flex items-center justify-between p-4 border-b border-border bg-background/95 backdrop-blur">
+              <button
+                onClick={() => setSelectedId(null)}
+                className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground"
+              >
+                <ChevronRight className="w-4 h-4 rotate-180" /> Retour
+              </button>
+              <span className="text-xs font-bold uppercase tracking-widest opacity-50">Lecture</span>
+            </div>
+
             <motion.div
-              key={selectedArticle.id}
+              key={selectedArticle ? selectedArticle.id : 'empty'}
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
               transition={{ duration: 0.2 }}
-              className="h-full bg-card border border-border/50 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+              className="h-full bg-card border border-border/50 md:rounded-2xl shadow-2xl flex flex-col overflow-hidden"
             >
-              <div className="relative h-48 sm:h-64 flex items-center justify-center overflow-hidden">
-                {selectedArticle.image_url ? (
-                  <>
-                    <img
-                      src={selectedArticle.image_url}
-                      alt={selectedArticle.title}
-                      className="absolute inset-0 w-full h-full object-cover"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-background via-background/20 to-transparent" />
-                  </>
-                ) : (
-                  <div className="absolute inset-0 bg-gradient-to-br from-accent/10 to-background flex items-center justify-center">
-                    <Sparkles className="w-16 h-16 text-accent/20" />
-                  </div>
-                )}
-
-                <div className="absolute bottom-4 left-6 right-6 flex justify-between items-end z-10">
-                  <span className="px-2 py-1 bg-background/80 backdrop-blur rounded text-[10px] font-bold uppercase tracking-wider text-accent border border-accent/20">
-                    {selectedArticle.category}
-                  </span>
-                  <div className="flex gap-2">
-                    {selectedArticle.final_score > 7 && (
-                      <span className="px-2 py-1 bg-green-500/10 text-green-500 rounded text-[10px] font-bold uppercase tracking-wider border border-green-500/20 flex items-center gap-1 backdrop-blur-sm">
-                        <Sparkles className="w-3 h-3" /> Top Info
-                      </span>
+              {selectedArticle ? (
+                <>
+                  <div className="relative h-48 sm:h-64 flex-shrink-0 flex items-center justify-center overflow-hidden">
+                    {selectedArticle.image_url ? (
+                      <>
+                        <img
+                          src={selectedArticle.image_url}
+                          alt={selectedArticle.title}
+                          className="absolute inset-0 w-full h-full object-cover"
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-background via-background/20 to-transparent" />
+                      </>
+                    ) : (
+                      <div className="absolute inset-0 bg-gradient-to-br from-accent/10 to-background flex items-center justify-center">
+                        <Sparkles className="w-16 h-16 text-accent/20" />
+                      </div>
                     )}
 
-                    {/* Toggle Read Status (Eye) */}
-                    <button
-                      onClick={(e) => toggleReadStatus(selectedArticle.id, e)}
-                      className="px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider border flex items-center gap-1 transition-all backdrop-blur-sm bg-background/80 text-muted border-border/20 hover:border-primary hover:text-primary"
-                      title={readArticles.has(selectedArticle.id) ? "Marquer comme non lu" : "Marquer comme lu"}
-                    >
-                      <EyeOff className="w-3 h-3" />
-                      {readArticles.has(selectedArticle.id) ? "Non lu" : "Lu"}
-                    </button>
+                    <div className="absolute bottom-4 left-6 right-6 flex justify-between items-end z-10">
+                      <span className="px-2 py-1 bg-background/80 backdrop-blur rounded text-[10px] font-bold uppercase tracking-wider text-accent border border-accent/20">
+                        {selectedArticle.category}
+                      </span>
+                      <div className="flex gap-2">
+                        {selectedArticle.final_score > 7 && (
+                          <span className="px-2 py-1 bg-green-500/10 text-green-500 rounded text-[10px] font-bold uppercase tracking-wider border border-green-500/20 flex items-center gap-1 backdrop-blur-sm">
+                            <Sparkles className="w-3 h-3" /> Top Info
+                          </span>
+                        )}
 
-                    <button
-                      onClick={(e) => toggleReadingList(selectedArticle.id, e)}
-                      className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider border flex items-center gap-1 transition-all backdrop-blur-sm ${readingList.has(selectedArticle.id)
-                        ? 'bg-accent/10 text-accent border-accent/20'
-                        : 'bg-background/80 text-muted border-border/20 hover:border-accent hover:text-accent'
-                        }`}
-                    >
-                      <Bookmark className={`w-3 h-3 ${readingList.has(selectedArticle.id) ? 'fill-current' : ''}`} />
-                      {readingList.has(selectedArticle.id) ? 'Sauvegardé' : 'Sauvegarder'}
-                    </button>
-                  </div>
-                </div>
-              </div>
+                        {/* Toggle Read Status (Eye) */}
+                        <button
+                          onClick={(e) => toggleReadStatus(selectedArticle.id, e)}
+                          className="px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider border flex items-center gap-1 transition-all backdrop-blur-sm bg-background/80 text-muted border-border/20 hover:border-primary hover:text-primary"
+                          title={readArticles.has(selectedArticle.id) ? "Marquer comme non lu" : "Marquer comme lu"}
+                        >
+                          <EyeOff className="w-3 h-3" />
+                          {readArticles.has(selectedArticle.id) ? "Non lu" : "Lu"}
+                        </button>
 
-              <div className="p-8 overflow-y-auto flex-1 custom-scrollbar">
-                <h1 className="text-2xl lg:text-3xl font-serif font-medium text-primary mb-6 leading-tight">
-                  {selectedArticle.title}
-                </h1>
-
-                <div className="prose prose-sm dark:prose-invert prose-p:text-muted-foreground max-w-none">
-                  <p className="text-lg leading-relaxed text-foreground/90 mb-8 border-l-2 border-accent pl-4 italic">
-                    {JSON.parse(selectedArticle.summary_short).tldr}
-                  </p>
-
-                  <div className="space-y-4 text-base leading-relaxed text-foreground/80">
-                    {(JSON.parse(selectedArticle.summary_short).full || "").split('\n').map((paragraph: string, i: number) => (
-                      paragraph.trim() && <p key={i}>{paragraph}</p>
-                    ))}
+                        <button
+                          onClick={(e) => toggleReadingList(selectedArticle.id, e)}
+                          className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider border flex items-center gap-1 transition-all backdrop-blur-sm ${readingList.has(selectedArticle.id)
+                            ? 'bg-accent/10 text-accent border-accent/20'
+                            : 'bg-background/80 text-muted border-border/20 hover:border-accent hover:text-accent'
+                            }`}
+                        >
+                          <Bookmark className={`w-3 h-3 ${readingList.has(selectedArticle.id) ? 'fill-current' : ''}`} />
+                          {readingList.has(selectedArticle.id) ? 'Sauvegardé' : 'Sauvegarder'}
+                        </button>
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="mt-8 bg-secondary/20 rounded-xl p-5 border border-border/40">
-                    <h3 className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-primary mb-3">
-                      <Sparkles className="w-4 h-4 text-accent" /> Analyse & Impact
-                    </h3>
-                    <p className="text-sm leading-relaxed">
-                      {JSON.parse(selectedArticle.summary_short).analysis || "Pas d'analyse spécifique disponible."}
-                    </p>
-                  </div>
-                </div>
+                  <div className="p-6 md:p-8 overflow-y-auto flex-1 custom-scrollbar pb-24 md:pb-8">
+                    <h1 className="text-2xl lg:text-3xl font-serif font-medium text-primary mb-6 leading-tight">
+                      {selectedArticle.title}
+                    </h1>
 
-                <div className="mt-8 pt-6 border-t border-border/40 flex justify-between items-center">
-                  <span className="text-xs text-muted">
-                    Source : {selectedArticle.source_name || "Multiple Sources"}
-                  </span>
-                  <a
-                    href={selectedArticle.source_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-2 text-muted-foreground hover:text-accent transition-colors text-xs font-bold uppercase tracking-widest"
-                  >
-                    Voir l'original <ExternalLink className="w-3 h-3" />
-                  </a>
+                    <div className="prose prose-sm dark:prose-invert prose-p:text-muted-foreground max-w-none">
+                      <p className="text-lg leading-relaxed text-foreground/90 mb-8 border-l-2 border-accent pl-4 italic">
+                        {JSON.parse(selectedArticle.summary_short).tldr}
+                      </p>
+
+                      <div className="space-y-4 text-base leading-relaxed text-foreground/80">
+                        {(JSON.parse(selectedArticle.summary_short).full || "").split('\n').map((paragraph: string, i: number) => (
+                          paragraph.trim() && <p key={i}>{paragraph}</p>
+                        ))}
+                      </div>
+
+                      <div className="mt-8 bg-secondary/20 rounded-xl p-5 border border-border/40">
+                        <h3 className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-primary mb-3">
+                          <Sparkles className="w-4 h-4 text-accent" /> Analyse & Impact
+                        </h3>
+                        <p className="text-sm leading-relaxed">
+                          {JSON.parse(selectedArticle.summary_short).analysis || "Pas d'analyse spécifique disponible."}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-8 pt-6 border-t border-border/40 flex justify-between items-center">
+                      <span className="text-xs text-muted">
+                        Source : {selectedArticle.source_name || "Multiple Sources"}
+                      </span>
+                      <a
+                        href={selectedArticle.source_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-2 text-muted-foreground hover:text-accent transition-colors text-xs font-bold uppercase tracking-widest"
+                      >
+                        Voir l'original <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="h-full flex items-center justify-center text-muted italic">
+                  Sélectionnez un article pour lire le contenu.
                 </div>
-              </div>
+              )}
             </motion.div>
-          ) : (
-            <div className="h-full flex items-center justify-center text-muted italic">
-              Sélectionnez un article pour lire le contenu.
-            </div>
-          )}
-        </AnimatePresence>
-      </div>
+          </div>
+        )}
+      </AnimatePresence>
 
     </div>
   );
