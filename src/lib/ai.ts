@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import { pipeline } from '@xenova/transformers';
+// import { pipeline } from '@xenova/transformers'; // Removed to fix Vercel 500 Error (Native Binary)
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 // Initialize Clients
@@ -191,14 +191,15 @@ FORMAT JSON:
   }
 }
 
+// Helper for Gemini Embeddings
 export async function generateEmbedding(text: string) {
   try {
-    if (!embeddingPipeline) {
-      embeddingPipeline = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
-    }
-    const output = await embeddingPipeline(text, { pooling: 'mean', normalize: true });
-    return Array.from(output.data) as number[];
+    if (!genAI) return null;
+    const model = genAI.getGenerativeModel({ model: "text-embedding-004" });
+    const result = await model.embedContent(text);
+    return result.embedding.values;
   } catch (error) {
+    console.error("Embedding Error (Gemini):", error);
     return null;
   }
 }
