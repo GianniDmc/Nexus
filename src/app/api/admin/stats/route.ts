@@ -19,17 +19,37 @@ export async function GET() {
 
     const { count: rejected } = await supabase.from('articles').select('*', { count: 'exact', head: true }).lt('final_score', 5.5).not('final_score', 'is', null);
 
-    const { count: pendingSummary } = await supabase.from('articles').select('*', { count: 'exact', head: true }).gte('final_score', 5.5).is('summary_short', null);
+    // 1. Get IDs of all published clusters to identify zombies
+    const { data: publishedClusters } = await supabase
+      .from('articles')
+      .select('cluster_id')
+      .eq('is_published', true)
+      .not('cluster_id', 'is', null);
 
-    // Articles prêts (scorés + résumés) mais PAS encore publiés
+    const publishedClusterSet = new Set(publishedClusters?.map(c => c.cluster_id));
+
+    // 2. Get all potential candidates for rewrite (High Score + No Summary)
+    const { data: candidates } = await supabase
+      .from('articles')
+      .select('cluster_id')
+      .gte('final_score', 5.5)
+      .is('summary_short', null);
+
+    let pendingActionable = 0;
+    let pendingSkipped = 0;
+
+    candidates?.forEach(c => {
+      if (c.cluster_id && publishedClusterSet.has(c.cluster_id)) {
+        pendingSkipped++;
+      } else {
+        pendingActionable++;
+      }
+    });
+
     const { count: ready } = await supabase.from('articles').select('*', { count: 'exact', head: true }).gte('final_score', 5.5).not('summary_short', 'is', null).eq('is_published', false);
-
     const { count: published } = await supabase.from('articles').select('*', { count: 'exact', head: true }).eq('is_published', true);
-
     const { count: clusterCount } = await supabase.from('clusters').select('*', { count: 'exact', head: true });
-
     const { count: scored } = await supabase.from('articles').select('*', { count: 'exact', head: true }).not('relevance_score', 'is', null);
-
     const { data: lastArticle } = await supabase.from('articles').select('created_at').order('created_at', { ascending: false }).limit(1).single();
 
     return NextResponse.json({
@@ -38,7 +58,8 @@ export async function GET() {
       scored,
       relevant,
       rejected,
-      pendingSummary,
+      pendingActionable, // To Work
+      pendingSkipped,    // Zombies
       ready,
       published,
       clusterCount,
