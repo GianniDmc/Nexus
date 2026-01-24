@@ -47,7 +47,7 @@ async function processBatch(
       }
 
       return {
-        title: item.title,
+        title: item.title || 'Sans titre',
         content: content,
         source_url: item.link,
         source_name: source.name,
@@ -65,7 +65,7 @@ async function processBatch(
   if (validItems.length > 0) {
     const { data, error } = await supabase
       .from('articles')
-      .upsert(validItems, { onConflict: 'source_url', ignoreDuplicates: true })
+      .upsert(validItems as any, { onConflict: 'source_url', ignoreDuplicates: true })
       .select();
 
     if (error) {
