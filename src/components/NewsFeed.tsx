@@ -14,6 +14,23 @@ const STORAGE_KEYS = {
   READING_LIST: 'nexus_reading_list',
 };
 
+// Date formatter for headers
+const formatDateHeader = (dateStr: string) => {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  if (date.toDateString() === now.toDateString()) return "Aujourd'hui";
+  if (date.toDateString() === yesterday.toDateString()) return "Hier";
+
+  return new Intl.DateTimeFormat('fr-FR', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long'
+  }).format(date).replace(/^\w/, c => c.toUpperCase());
+};
+
 const getStoredSet = (key: string): Set<string> => {
   if (typeof window === 'undefined') return new Set();
   try {
@@ -122,8 +139,10 @@ export default function NewsFeed() {
     // 1. Primary Filter (URL param)
     if (filterMode === 'recent') {
       result = result.filter(i => now - new Date(i.published_at).getTime() <= HOURS_48);
+    } else if (filterMode === 'week') {
+      result = result.filter(i => now - new Date(i.published_at).getTime() <= (7 * 24 * 60 * 60 * 1000));
     } else if (filterMode === 'archives') {
-      result = result.filter(i => now - new Date(i.published_at).getTime() > HOURS_48);
+      result = result.filter(i => now - new Date(i.published_at).getTime() > HOURS_48); // Archives still starts after 48h to avoid overlap with recent if preferred, or > 7 days? User asked for week apart. Let's keep archives as everything old. or strictly > 7 days? Usually Archives means "Not Today". Let's keep > 48h for now.
     } else if (filterMode === 'saved') {
       result = result.filter(i => readingList.has(i.id));
     }
@@ -203,6 +222,7 @@ export default function NewsFeed() {
   const getPageTitle = () => {
     switch (filterMode) {
       case 'saved': return 'Ma Liste de lecture';
+      case 'week': return 'Cette Semaine';
       case 'archives': return 'Archives';
       default: return 'A la une';
     }
@@ -279,60 +299,71 @@ export default function NewsFeed() {
             const isSaved = readingList.has(article.id);
             const date = new Date(article.published_at);
 
+            // Check for date header
+            const prevArticle = index > 0 ? displayedItems[index - 1] : null;
+            const showDateHeader = !prevArticle ||
+              new Date(article.published_at).toDateString() !== new Date(prevArticle.published_at).toDateString();
+
             return (
-              <div
-                key={article.id}
-                onClick={() => selectArticle(article.id)}
-                className={`group cursor-pointer p-4 rounded-xl border transition-all duration-300 relative ${isSelected
-                  ? 'bg-accent/5 border-accent/50 shadow-md ring-1 ring-accent/20'
-                  : isRead
-                    ? 'bg-card/30 border-border/20 opacity-60'
-                    : 'bg-card/50 border-border/40 hover:bg-card hover:border-border'
-                  }`}
-              >
-                <div className="flex items-start gap-4">
-                  <div className="flex flex-col items-center gap-1 mt-1">
-                    <div className={`text-xs font-mono font-bold ${isSelected ? 'text-accent' : isRead ? 'text-muted/20' : 'text-muted/30'}`}>
-                      {(index + 1).toString().padStart(2, '0')}
+              <div key={article.id}>
+                {showDateHeader && (
+                  <div className="sticky top-0 z-0 bg-background/95 backdrop-blur px-2 py-1.5 mb-2 mt-4 first:mt-0 text-xs font-bold uppercase tracking-widest text-muted-foreground/70 border-b border-border/30">
+                    {formatDateHeader(article.published_at)}
+                  </div>
+                )}
+                <div
+                  onClick={() => selectArticle(article.id)}
+                  className={`group cursor-pointer p-4 rounded-xl border transition-all duration-300 relative ${isSelected
+                    ? 'bg-accent/5 border-accent/50 shadow-md ring-1 ring-accent/20'
+                    : isRead
+                      ? 'bg-card/30 border-border/20 opacity-60'
+                      : 'bg-card/50 border-border/40 hover:bg-card hover:border-border'
+                    }`}
+                >
+                  <div className="flex items-start gap-4">
+                    <div className="flex flex-col items-center gap-1 mt-1">
+                      <div className={`text-xs font-mono font-bold ${isSelected ? 'text-accent' : isRead ? 'text-muted/20' : 'text-muted/30'}`}>
+                        {(index + 1).toString().padStart(2, '0')}
+                      </div>
+                      <button
+                        onClick={(e) => toggleReadStatus(article.id, e)}
+                        className={`p-0.5 rounded-full transition-colors ${isRead
+                          ? 'text-green-500/50 hover:text-green-500 hover:bg-green-500/10'
+                          : 'text-transparent hover:text-muted-foreground/30'}`}
+                        title={isRead ? "Marquer comme non lu" : "Marquer comme lu"}
+                      >
+                        <Check className="w-3 h-3" />
+                      </button>
                     </div>
+
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">{article.category || 'Tech'}</span>
+                        <span className="text-[9px] text-muted">• {formatDistanceToNow(date)}</span>
+                        {sortBy === 'score' && article.final_score > 0 && (
+                          <span className="text-[9px] font-bold text-accent bg-accent/10 px-1.5 py-0.5 rounded-full flex items-center gap-1">
+                            <Sparkles className="w-2.5 h-2.5" />
+                            {article.final_score}/10
+                          </span>
+                        )}
+                      </div>
+                      <h4 className={`text-sm font-medium leading-snug ${isRead ? 'text-primary/50' : isSelected ? 'text-primary' : 'text-primary/80'}`}>
+                        {article.title}
+                      </h4>
+                    </div>
+
+                    {/* Bookmark Button */}
                     <button
-                      onClick={(e) => toggleReadStatus(article.id, e)}
-                      className={`p-0.5 rounded-full transition-colors ${isRead
-                        ? 'text-green-500/50 hover:text-green-500 hover:bg-green-500/10'
-                        : 'text-transparent hover:text-muted-foreground/30'}`}
-                      title={isRead ? "Marquer comme non lu" : "Marquer comme lu"}
+                      onClick={(e) => toggleReadingList(article.id, e)}
+                      className={`p-1.5 rounded-lg transition-all ${isSaved
+                        ? 'bg-accent/20 text-accent'
+                        : 'text-muted/30 hover:text-accent hover:bg-accent/10'
+                        }`}
+                      title={isSaved ? "Retirer de ma liste" : "Ajouter à ma liste"}
                     >
-                      <Check className="w-3 h-3" />
+                      <Bookmark className={`w-4 h-4 ${isSaved ? 'fill-current' : ''}`} />
                     </button>
                   </div>
-
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">{article.category || 'Tech'}</span>
-                      <span className="text-[9px] text-muted">• {formatDistanceToNow(date)}</span>
-                      {sortBy === 'score' && article.final_score > 0 && (
-                        <span className="text-[9px] font-bold text-accent bg-accent/10 px-1.5 py-0.5 rounded-full flex items-center gap-1">
-                          <Sparkles className="w-2.5 h-2.5" />
-                          {article.final_score}/10
-                        </span>
-                      )}
-                    </div>
-                    <h4 className={`text-sm font-medium leading-snug ${isRead ? 'text-primary/50' : isSelected ? 'text-primary' : 'text-primary/80'}`}>
-                      {article.title}
-                    </h4>
-                  </div>
-
-                  {/* Bookmark Button */}
-                  <button
-                    onClick={(e) => toggleReadingList(article.id, e)}
-                    className={`p-1.5 rounded-lg transition-all ${isSaved
-                      ? 'bg-accent/20 text-accent'
-                      : 'text-muted/30 hover:text-accent hover:bg-accent/10'
-                      }`}
-                    title={isSaved ? "Retirer de ma liste" : "Ajouter à ma liste"}
-                  >
-                    <Bookmark className={`w-4 h-4 ${isSaved ? 'fill-current' : ''}`} />
-                  </button>
                 </div>
               </div>
             );
