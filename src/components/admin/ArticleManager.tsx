@@ -8,12 +8,13 @@ import { fr } from 'date-fns/locale';
 interface Article {
     id: string;
     title: string;
-    source_name: string; // Corrected from 'source'
+    source_name: string;
     published_at: string;
     final_score: number | null;
-    source_url: string; // Corrected from 'url'
+    source_url: string;
     summary_short: string | null;
     cluster_id: string | null;
+    cluster_size?: number;
     is_published: boolean;
 }
 
@@ -327,13 +328,13 @@ export function ArticleManager() {
                                         </div>
                                     </td>
                                     <td className="px-4 py-3">
-                                        {article.cluster_id ? (
+                                        {article.cluster_id && (article.cluster_size || 0) > 1 ? (
                                             <button
                                                 onClick={() => viewCluster(article.cluster_id!)}
                                                 className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 bg-blue-500/10 px-2 py-1 rounded-full transition-colors"
                                             >
                                                 <Layers className="w-3 h-3" />
-                                                Voir
+                                                {article.cluster_size}
                                             </button>
                                         ) : (
                                             <span className="text-muted/30 text-xs">-</span>

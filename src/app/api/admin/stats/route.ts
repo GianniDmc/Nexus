@@ -10,16 +10,63 @@ export async function GET() {
   );
 
   try {
-    const { count: total } = await supabase.from('articles').select('*', { count: 'exact', head: true });
+    // Try to use the SQL function first (most efficient)
+    const { data: rpcData, error: rpcError } = await supabase.rpc('get_pipeline_stats');
 
-    // Articles pas encore scorés
-    const { count: pendingScore } = await supabase.from('articles').select('*', { count: 'exact', head: true }).is('relevance_score', null);
+    if (!rpcError && rpcData) {
+      // Add lastSync separately
+      const { data: lastArticle } = await supabase
+        .from('articles')
+        .select('created_at')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
 
-    const { count: relevant } = await supabase.from('articles').select('*', { count: 'exact', head: true }).gte('final_score', 5.5);
+      return NextResponse.json({
+        ...rpcData,
+        pendingScore: rpcData.pendingScoring,
+        pendingRewriting: rpcData.relevant - (rpcData.ready || 0) - (rpcData.published || 0),
+        pendingActionable: rpcData.relevant - (rpcData.ready || 0) - (rpcData.published || 0),
+        pendingSkipped: 0,
+        lastSync: lastArticle?.created_at || null
+      });
+    }
 
-    const { count: rejected } = await supabase.from('articles').select('*', { count: 'exact', head: true }).lt('final_score', 5.5).not('final_score', 'is', null);
+    // Fallback to parallel count queries if function doesn't exist
+    console.warn('[STATS] SQL function not found, using fallback. Run the migration to enable.');
 
-    // 1. Get IDs of all published clusters to identify zombies
+    const [
+      totalResult,
+      pendingEmbeddingResult,
+      embeddedResult,
+      pendingClusteringResult,
+      clusteredResult,
+      pendingScoringResult,
+      scoredResult,
+      relevantResult,
+      rejectedResult,
+      readyResult,
+      publishedResult,
+      clusterCountResult,
+      lastArticleResult,
+      clusterArticlesResult
+    ] = await Promise.all([
+      supabase.from('articles').select('*', { count: 'exact', head: true }),
+      supabase.from('articles').select('*', { count: 'exact', head: true }).is('embedding', null),
+      supabase.from('articles').select('*', { count: 'exact', head: true }).not('embedding', 'is', null),
+      supabase.from('articles').select('*', { count: 'exact', head: true }).not('embedding', 'is', null).is('cluster_id', null),
+      supabase.from('articles').select('*', { count: 'exact', head: true }).not('cluster_id', 'is', null),
+      supabase.from('articles').select('*', { count: 'exact', head: true }).not('cluster_id', 'is', null).is('relevance_score', null),
+      supabase.from('articles').select('*', { count: 'exact', head: true }).not('relevance_score', 'is', null),
+      supabase.from('articles').select('*', { count: 'exact', head: true }).gte('final_score', 5.5),
+      supabase.from('articles').select('*', { count: 'exact', head: true }).lt('final_score', 5.5).not('final_score', 'is', null),
+      supabase.from('articles').select('*', { count: 'exact', head: true }).not('summary_short', 'is', null).eq('is_published', false).gte('final_score', 5.5),
+      supabase.from('articles').select('*', { count: 'exact', head: true }).eq('is_published', true),
+      supabase.from('clusters').select('*', { count: 'exact', head: true }),
+      supabase.from('articles').select('created_at').order('created_at', { ascending: false }).limit(1).single(),
+      supabase.from('articles').select('cluster_id').not('cluster_id', 'is', null).range(0, 9999)
+    ]);
+
     const { data: publishedClusters } = await supabase
       .from('articles')
       .select('cluster_id')
@@ -28,7 +75,6 @@ export async function GET() {
 
     const publishedClusterSet = new Set(publishedClusters?.map(c => c.cluster_id));
 
-    // 2. Get all potential candidates for rewrite (High Score + No Summary)
     const { data: candidates } = await supabase
       .from('articles')
       .select('cluster_id')
@@ -37,7 +83,6 @@ export async function GET() {
 
     let pendingActionable = 0;
     let pendingSkipped = 0;
-
     candidates?.forEach(c => {
       if (c.cluster_id && publishedClusterSet.has(c.cluster_id)) {
         pendingSkipped++;
@@ -46,24 +91,31 @@ export async function GET() {
       }
     });
 
-    const { count: ready } = await supabase.from('articles').select('*', { count: 'exact', head: true }).gte('final_score', 5.5).not('summary_short', 'is', null).eq('is_published', false);
-    const { count: published } = await supabase.from('articles').select('*', { count: 'exact', head: true }).eq('is_published', true);
-    const { count: clusterCount } = await supabase.from('clusters').select('*', { count: 'exact', head: true });
-    const { count: scored } = await supabase.from('articles').select('*', { count: 'exact', head: true }).not('relevance_score', 'is', null);
-    const { data: lastArticle } = await supabase.from('articles').select('created_at').order('created_at', { ascending: false }).limit(1).single();
+    const clusterCounts: Record<string, number> = {};
+    clusterArticlesResult.data?.forEach(a => {
+      if (a.cluster_id) clusterCounts[a.cluster_id] = (clusterCounts[a.cluster_id] || 0) + 1;
+    });
+    const multiArticleClusters = Object.values(clusterCounts).filter(c => c > 1).length;
 
     return NextResponse.json({
-      total,
-      pendingScore,
-      scored,
-      relevant,
-      rejected,
-      pendingActionable, // To Work
-      pendingSkipped,    // Zombies
-      ready,
-      published,
-      clusterCount,
-      lastSync: lastArticle?.created_at || null
+      total: totalResult.count || 0,
+      pendingScore: pendingScoringResult.count || 0,
+      pendingEmbedding: pendingEmbeddingResult.count || 0,
+      embedded: embeddedResult.count || 0,
+      pendingClustering: pendingClusteringResult.count || 0,
+      clustered: clusteredResult.count || 0,
+      pendingScoring: pendingScoringResult.count || 0,
+      pendingRewriting: pendingActionable,
+      scored: scoredResult.count || 0,
+      relevant: relevantResult.count || 0,
+      rejected: rejectedResult.count || 0,
+      pendingActionable,
+      pendingSkipped,
+      ready: readyResult.count || 0,
+      published: publishedResult.count || 0,
+      clusterCount: clusterCountResult.count || 0,
+      multiArticleClusters,
+      lastSync: lastArticleResult.data?.created_at || null
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

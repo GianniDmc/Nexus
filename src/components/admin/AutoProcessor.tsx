@@ -21,13 +21,26 @@ export function AutoProcessor({ onStatsUpdate }: { onStatsUpdate?: () => void })
         setLog(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev.slice(0, 9)]);
     };
 
-    const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+    const sleep = (ms: number) => new Promise(resolve => {
+        const timeout = setTimeout(resolve, ms);
+        abortControllerRef.current?.signal.addEventListener('abort', () => {
+            clearTimeout(timeout);
+            resolve(true); // Resolve immediately on abort
+        });
+    });
 
     const runCycle = async () => {
         if (abortControllerRef.current?.signal.aborted) return false;
 
         try {
+            const aiConfig = (() => {
+                try { return JSON.parse(localStorage.getItem('nexus-ai-config') || '{}'); } catch { return {}; }
+            })();
+
             const res = await fetch('/api/process', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ step: 'all', config: aiConfig }),
                 signal: abortControllerRef.current?.signal
             });
 
@@ -50,6 +63,11 @@ export function AutoProcessor({ onStatsUpdate }: { onStatsUpdate?: () => void })
 
             const data = await res.json();
             setConsecutiveErrors(0);
+
+            if (data.processed?.stopped) {
+                addLog("🛑 Arrêt demandé par le serveur.");
+                return false;
+            }
 
             const { embeddings, clustered, scored, rewritten } = data.processed;
 
@@ -134,9 +152,19 @@ export function AutoProcessor({ onStatsUpdate }: { onStatsUpdate?: () => void })
         setIsRunning(false);
     };
 
-    const stopAutoPilot = () => {
+    const stopAutoPilot = async () => {
         abortControllerRef.current?.abort();
         setIsRunning(false);
+        // Also notify server to stop (sync with ManualSteps)
+        try {
+            await fetch('/api/admin/processing-state', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'stop' })
+            });
+        } catch (e) {
+            console.error('Failed to notify server of stop', e);
+        }
     };
 
     return (
