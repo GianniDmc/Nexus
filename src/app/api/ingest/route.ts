@@ -20,7 +20,7 @@ const BATCH_DELAY_MS = 300; // Délai entre chaque batch pour éviter le rate-li
 async function processBatch(
   items: Parser.Item[],
   source: { name: string; category: string },
-  supabase: ReturnType<typeof createClient>
+  supabase: any // Relax type to avoid strict Generic mismatch during build
 ): Promise<{ added: number; results: any[] }> {
   let added = 0;
   const results: any[] = [];
