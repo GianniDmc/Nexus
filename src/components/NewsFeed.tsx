@@ -88,7 +88,7 @@ export default function NewsFeed() {
         });
 
         setItems(uniqueItems);
-        if (uniqueItems.length > 0) {
+        if (uniqueItems.length > 0 && typeof window !== 'undefined' && window.innerWidth >= 768) {
           setSelectedId(uniqueItems[0].id);
         }
       }
