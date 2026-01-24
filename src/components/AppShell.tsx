@@ -19,7 +19,7 @@ interface AppShellProps {
   children: React.ReactNode;
 }
 
-function SidebarLink({ href, icon, label }: { href: string; icon: React.ReactNode; label: string }) {
+function SidebarLink({ href, icon, label, onClick }: { href: string; icon: React.ReactNode; label: string; onClick?: () => void }) {
   const searchParams = useSearchParams();
   const currentFilter = searchParams.get('filter') || 'recent';
   const targetFilter = href.split('=')[1] || 'recent';
@@ -29,6 +29,7 @@ function SidebarLink({ href, icon, label }: { href: string; icon: React.ReactNod
   return (
     <Link
       href={href}
+      onClick={onClick}
       className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all ${isActive
         ? 'bg-accent/10 text-accent'
         : 'text-muted-foreground hover:bg-secondary/50 hover:text-primary'
@@ -129,7 +130,14 @@ export function AppShell({ children }: AppShellProps) {
         {isMobileMenuOpen && (
           <div className="absolute inset-0 top-[61px] bg-background z-40 p-4 md:hidden">
             <div className="space-y-6">
-              <div className="pt-4">
+              <nav className="space-y-2">
+                <SidebarLink onClick={() => setIsMobileMenuOpen(false)} href="/?filter=recent" icon={<Sparkles className="w-5 h-5" />} label="Aujourd'hui" />
+                <SidebarLink onClick={() => setIsMobileMenuOpen(false)} href="/?filter=week" icon={<Calendar className="w-5 h-5" />} label="Cette semaine" />
+                <SidebarLink onClick={() => setIsMobileMenuOpen(false)} href="/?filter=archives" icon={<Archive className="w-5 h-5" />} label="Archives" />
+                <SidebarLink onClick={() => setIsMobileMenuOpen(false)} href="/?filter=saved" icon={<Bookmark className="w-5 h-5" />} label="Ma liste" />
+              </nav>
+
+              <div className="pt-4 border-t border-border/40">
                 <ThemeToggle />
               </div>
             </div>
