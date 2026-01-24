@@ -32,6 +32,9 @@ export async function GET() {
     for (const source of sources) {
       try {
         const feed = await parser.parseURL(source.url);
+        let skipped = 0;
+        let added = 0;
+        console.log(`[INGEST] Source: ${source.name} - ${feed.items.length} items in RSS`);
 
         for (const item of feed.items) {
           if (!item.link) continue;
@@ -43,7 +46,10 @@ export async function GET() {
             .eq('source_url', item.link)
             .single();
 
-          if (existing) continue; // Skip if already ingested
+          if (existing) {
+            skipped++;
+            continue; // Skip if already ingested
+          }
 
           // Get RSS content as baseline
           let content = item.contentSnippet || item.content || '';
@@ -62,12 +68,12 @@ export async function GET() {
             // Small delay to be respectful to source servers
             await sleep(500);
           } catch (scrapeErr) {
-            console.warn(`Scrape failed for ${item.link}, using RSS content`);
+            console.warn(`[INGEST] Scrape failed for ${item.link}, using RSS content`);
           }
 
           const { data, error } = await supabase
             .from('articles')
-            .insert({
+            .upsert({
               title: item.title,
               content: content,
               source_url: item.link,
@@ -76,12 +82,18 @@ export async function GET() {
               published_at: item.isoDate ? new Date(item.isoDate).toISOString() : new Date().toISOString(),
               category: source.category,
               image_url: imageUrl,
-            })
+            }, { onConflict: 'source_url', ignoreDuplicates: true })
             .select()
             .single();
 
-          if (data) results.push(data);
+          if (error) {
+            console.error(`[INGEST] Insert failed for "${item.title}": ${error.message}`);
+          } else if (data) {
+            added++;
+            results.push(data);
+          }
         }
+        console.log(`[INGEST] Source ${source.name} - Skipped: ${skipped}, Added: ${added}`);
 
         await supabase
           .from('sources')
