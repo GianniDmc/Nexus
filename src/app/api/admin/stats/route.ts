@@ -3,18 +3,30 @@ import { createClient } from '@supabase/supabase-js';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const freshOnly = searchParams.get('freshOnly') === 'true';
+  const minSources = parseInt(searchParams.get('minSources') || '1');
+  const bypassRPC = freshOnly || minSources > 1; // Bypass if any filter is active
+
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 
   try {
-    // Try to use the SQL function first (most efficient)
-    const { data: rpcData, error: rpcError } = await supabase.rpc('get_pipeline_stats');
+    // Try to use the SQL function first (most efficient) ONLY if no filter
+    let rpcData = null;
+    let rpcError = null;
 
-    if (!rpcError && rpcData) {
-      // Add lastSync separately
+    if (!bypassRPC) {
+      const res = await supabase.rpc('get_pipeline_stats');
+      rpcData = res.data;
+      rpcError = res.error;
+    }
+
+    if (!bypassRPC && !rpcError && rpcData) {
+      // ... existing RPC logic ...
       const { data: lastArticle } = await supabase
         .from('articles')
         .select('created_at')
@@ -32,8 +44,16 @@ export async function GET() {
       });
     }
 
-    // Fallback to parallel count queries if function doesn't exist
-    console.warn('[STATS] SQL function not found, using fallback. Run the migration to enable.');
+    // Fallback OR Filtered Mode
+    const applyFilter = (q: any) => {
+      if (freshOnly) {
+        const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+        return q.gte('published_at', twoDaysAgo);
+      }
+      return q;
+    };
+
+    if (bypassRPC) console.log(`[STATS] Filtered mode(Fresh: ${freshOnly}, MinSrc: ${minSources})...`);
 
     const [
       totalResult,
@@ -51,20 +71,20 @@ export async function GET() {
       lastArticleResult,
       clusterArticlesResult
     ] = await Promise.all([
-      supabase.from('articles').select('*', { count: 'exact', head: true }),
-      supabase.from('articles').select('*', { count: 'exact', head: true }).is('embedding', null),
-      supabase.from('articles').select('*', { count: 'exact', head: true }).not('embedding', 'is', null),
-      supabase.from('articles').select('*', { count: 'exact', head: true }).not('embedding', 'is', null).is('cluster_id', null),
-      supabase.from('articles').select('*', { count: 'exact', head: true }).not('cluster_id', 'is', null),
-      supabase.from('articles').select('*', { count: 'exact', head: true }).not('cluster_id', 'is', null).is('relevance_score', null),
-      supabase.from('articles').select('*', { count: 'exact', head: true }).not('relevance_score', 'is', null),
-      supabase.from('articles').select('*', { count: 'exact', head: true }).gte('final_score', 5.5),
-      supabase.from('articles').select('*', { count: 'exact', head: true }).lt('final_score', 5.5).not('final_score', 'is', null),
-      supabase.from('articles').select('*', { count: 'exact', head: true }).not('summary_short', 'is', null).eq('is_published', false).gte('final_score', 5.5),
-      supabase.from('articles').select('*', { count: 'exact', head: true }).eq('is_published', true),
-      supabase.from('clusters').select('*', { count: 'exact', head: true }),
+      applyFilter(supabase.from('articles').select('*', { count: 'exact', head: true })),
+      applyFilter(supabase.from('articles').select('*', { count: 'exact', head: true }).is('embedding', null)),
+      applyFilter(supabase.from('articles').select('*', { count: 'exact', head: true }).not('embedding', 'is', null)),
+      applyFilter(supabase.from('articles').select('*', { count: 'exact', head: true }).not('embedding', 'is', null).is('cluster_id', null)),
+      applyFilter(supabase.from('articles').select('*', { count: 'exact', head: true }).not('cluster_id', 'is', null)),
+      applyFilter(supabase.from('articles').select('*', { count: 'exact', head: true }).not('cluster_id', 'is', null).is('relevance_score', null)),
+      applyFilter(supabase.from('articles').select('*', { count: 'exact', head: true }).not('relevance_score', 'is', null)),
+      applyFilter(supabase.from('articles').select('*', { count: 'exact', head: true }).gte('final_score', 5.5)),
+      applyFilter(supabase.from('articles').select('*', { count: 'exact', head: true }).lt('final_score', 5.5).not('final_score', 'is', null)),
+      applyFilter(supabase.from('articles').select('*', { count: 'exact', head: true }).not('summary_short', 'is', null).eq('is_published', false).gte('final_score', 5.5)),
+      applyFilter(supabase.from('articles').select('*', { count: 'exact', head: true }).eq('is_published', true)),
+      supabase.from('clusters').select('*', { count: 'exact', head: true }), // Clusters logic might need check, but articles drive the pipe
       supabase.from('articles').select('created_at').order('created_at', { ascending: false }).limit(1).single(),
-      supabase.from('articles').select('cluster_id').not('cluster_id', 'is', null).range(0, 9999)
+      applyFilter(supabase.from('articles').select('cluster_id, source_name').not('cluster_id', 'is', null).gte('final_score', 5.5)) // Optimize for density check
     ]);
 
     const { data: publishedClusters } = await supabase
@@ -75,24 +95,40 @@ export async function GET() {
 
     const publishedClusterSet = new Set(publishedClusters?.map(c => c.cluster_id));
 
-    const { data: candidates } = await supabase
+    // Aggregate Candidates with Density Check
+    let candidatesQuery = supabase
       .from('articles')
-      .select('cluster_id')
+      .select('cluster_id, source_name') // Fetch sources
       .gte('final_score', 5.5)
       .is('summary_short', null);
 
+    // Check fresh articles only
+    const { data: candidates } = await applyFilter(candidatesQuery);
+
+    // Group by Cluster
+    const candidatesByCluster: Record<string, Set<string>> = {};
+    candidates?.forEach((c: any) => {
+      if (!c.cluster_id) return;
+      if (!candidatesByCluster[c.cluster_id]) candidatesByCluster[c.cluster_id] = new Set();
+      if (c.source_name) candidatesByCluster[c.cluster_id].add(c.source_name);
+    });
+
     let pendingActionable = 0;
     let pendingSkipped = 0;
-    candidates?.forEach(c => {
-      if (c.cluster_id && publishedClusterSet.has(c.cluster_id)) {
+
+    Object.entries(candidatesByCluster).forEach(([cid, sources]) => {
+      if (publishedClusterSet.has(cid)) {
         pendingSkipped++;
       } else {
-        pendingActionable++;
+        // FILTER CHECK
+        if (sources.size >= minSources) {
+          pendingActionable++;
+        }
       }
     });
 
     const clusterCounts: Record<string, number> = {};
-    clusterArticlesResult.data?.forEach(a => {
+    clusterArticlesResult.data?.forEach((a: any) => {
       if (a.cluster_id) clusterCounts[a.cluster_id] = (clusterCounts[a.cluster_id] || 0) + 1;
     });
     const multiArticleClusters = Object.values(clusterCounts).filter(c => c > 1).length;

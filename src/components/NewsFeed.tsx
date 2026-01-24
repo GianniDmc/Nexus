@@ -216,6 +216,30 @@ export default function NewsFeed() {
   };
 
   const selectedArticle = items.find(i => i.id === selectedId);
+
+  // Fetch cluster sources when selected article changes
+  const [clusterArticles, setClusterArticles] = useState<any[]>([]);
+  const [showSources, setShowSources] = useState(false);
+
+  useEffect(() => {
+    async function fetchSources() {
+      if (!selectedArticle || !selectedArticle.cluster_id) {
+        setClusterArticles([]);
+        return;
+      }
+      const { data } = await supabase
+        .from('articles')
+        .select('id, title, source_name, source_url, published_at')
+        .eq('cluster_id', selectedArticle.cluster_id)
+        .order('published_at', { ascending: false });
+
+      if (data) {
+        setClusterArticles(data);
+      }
+    }
+    fetchSources();
+  }, [selectedArticle?.id, selectedArticle?.cluster_id]);
+
   const unreadCount = displayedItems.filter(i => !readArticles.has(i.id)).length;
 
   // Title based on filter
@@ -478,19 +502,46 @@ export default function NewsFeed() {
                       </div>
                     </div>
 
-                    <div className="mt-8 pt-6 border-t border-border/40 flex justify-between items-center">
-                      <span className="text-xs text-muted">
-                        Source : {selectedArticle.source_name || "Multiple Sources"}
-                      </span>
-                      <a
-                        href={selectedArticle.source_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-2 text-muted-foreground hover:text-accent transition-colors text-xs font-bold uppercase tracking-widest"
+                    {/* PREMIUM SOURCES FOOTER */}
+                    <div className="mt-10 border-t border-border/40 pt-6">
+                      <button
+                        onClick={() => setShowSources(!showSources)}
+                        className="flex items-center justify-between w-full group mb-4 py-2 hover:bg-secondary/10 rounded-lg transition-colors px-2 -mx-2"
                       >
-                        Voir l'original <ExternalLink className="w-3 h-3" />
-                      </a>
+                        <span className="text-sm font-bold uppercase tracking-widest text-primary/80 flex items-center gap-2">
+                          <span className="bg-accent/10 p-1 rounded-md"><Sparkles className="w-3 h-3 text-accent" /></span>
+                          Couverture complète ({clusterArticles.length} sources)
+                        </span>
+                        <ChevronRight className={`w-4 h-4 text-muted-foreground transition-transform duration-300 ${showSources ? 'rotate-90' : ''}`} />
+                      </button>
+
+                      <div className={`space-y-3 pl-1 transition-all duration-500 overflow-hidden ${showSources ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'}`}>
+                        {clusterArticles.map((article) => (
+                          <a
+                            key={article.id}
+                            href={article.source_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="block bg-card/40 hover:bg-secondary/20 p-3 rounded-lg border border-border/30 hover:border-accent/30 transition-all group/card relative"
+                          >
+                            <div className="flex justify-between items-start gap-4">
+                              <div>
+                                <h4 className="text-sm font-medium text-foreground/90 group-hover/card:text-primary leading-snug mb-2">
+                                  {article.title}
+                                </h4>
+                                <div className="flex items-center gap-2 text-[10px] text-muted-foreground uppercase tracking-wide font-bold">
+                                  <span className="text-accent">{article.source_name}</span>
+                                  <span className="w-0.5 h-0.5 bg-muted-foreground rounded-full"></span>
+                                  <span>{formatDistanceToNow(new Date(article.published_at))}</span>
+                                </div>
+                              </div>
+                              <ExternalLink className="w-3 h-3 text-muted-foreground/50 group-hover/card:text-accent group-hover/card:translate-x-0.5 group-hover/card:-translate-y-0.5 transition-all" />
+                            </div>
+                          </a>
+                        ))}
+                      </div>
                     </div>
+
                   </div>
                 </>
               ) : (

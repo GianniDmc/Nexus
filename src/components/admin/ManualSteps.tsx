@@ -43,6 +43,8 @@ interface PipelineStats {
 export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
     const [runningStep, setRunningStep] = useState<Step | null>(null);
     const [isLooping, setIsLooping] = useState(false);
+    const [freshOnly, setFreshOnly] = useState(false); // Option: Fresh content only
+    const [minSources, setMinSources] = useState(1); // New: Cluster density filter
     const [progress, setProgress] = useState<{ step: Step; total: number; current: number } | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [stats, setStats] = useState<PipelineStats>({});
@@ -67,11 +69,13 @@ export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
 
     const fetchStats = async () => {
         try {
-            const res = await fetch('/api/admin/stats');
+            const res = await fetch(`/api/admin/stats?freshOnly=${freshOnly}&minSources=${minSources}`);
             const data = await res.json();
             setStats(data);
         } catch (e) { console.error('Stats fetch failed', e); }
     };
+
+
 
     const fetchSources = async () => {
         try {
@@ -95,6 +99,12 @@ export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
         } catch (e) { console.error('Server state fetch failed', e); }
     };
 
+    // Refresh stats when filters change
+    useEffect(() => {
+        fetchStats();
+    }, [freshOnly, minSources]);
+
+    // Polling Interval (Depends on filters)
     useEffect(() => {
         fetchStats();
         fetchSources();
@@ -104,7 +114,7 @@ export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
             fetchServerState();
         }, 5000);
         return () => clearInterval(interval);
-    }, []);
+    }, [freshOnly, minSources]);
 
     const getStepKey = (step: Step) => {
         switch (step) {
@@ -132,7 +142,11 @@ export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
             const res = await fetch(`/api/process?step=${step}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ step, config: getAIConfig() })
+                body: JSON.stringify({
+                    step, config: getAIConfig(),
+                    freshOnly: freshOnly, // Pass option to backend
+                    minSources: minSources
+                }),
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Erreur');
@@ -160,7 +174,7 @@ export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
                 const res = await fetch(`/api/process?step=${step}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ step, config: getAIConfig() }),
+                    body: JSON.stringify({ step, config: getAIConfig(), freshOnly: freshOnly, minSources: minSources }),
                     signal: abortControllerRef.current?.signal
                 });
                 const data = await res.json();
@@ -309,6 +323,37 @@ export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
                 <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
                     <RefreshCw className="w-4 h-4 text-accent" /> Traitement
                 </h3>
+
+                {/* Global Options */}
+                <div className="mb-4 flex flex-wrap gap-4 items-center">
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground bg-secondary/30 px-3 py-2 rounded-lg border border-border/50 cursor-pointer hover:bg-secondary/50 transition-colors w-fit">
+                        <input
+                            type="checkbox"
+                            checked={freshOnly}
+                            onChange={(e) => setFreshOnly(e.target.checked)}
+                            className="rounded border-gray-400 text-accent focus:ring-accent w-4 h-4"
+                        />
+                        <span>Uniquement articles &lt; 48h (Économie IA)</span>
+                    </label>
+
+                    <div className="flex items-center gap-3 text-xs text-muted-foreground bg-secondary/30 px-4 py-2 rounded-lg border border-border/50">
+                        <GitBranch className="w-3 h-3 text-purple-500" />
+                        <span className="font-semibold">Consensus :</span>
+                        <div className="flex items-center gap-2">
+                            <input
+                                type="range"
+                                min="1"
+                                max="5"
+                                step="1"
+                                value={minSources}
+                                onChange={(e) => setMinSources(parseInt(e.target.value))}
+                                className="w-24 h-1.5 bg-secondary rounded-lg appearance-none cursor-pointer accent-purple-500"
+                            />
+                            <span className="font-mono font-bold text-foreground w-3">{minSources}</span>
+                            <span className="text-[10px] text-muted">{minSources > 1 ? 'sources min.' : 'source min.'}</span>
+                        </div>
+                    </div>
+                </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     {STEPS.map((step) => {
                         const remaining = (stats as any)[step.statKey] || 0;
@@ -358,13 +403,16 @@ export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
                                     ? STEPS.find(s => s.id === serverRunning.step)?.label || serverRunning.step
                                     : 'Traitement en cours'}...
                         </span>
-                        <button
-                            onClick={() => stopLoop(!isLooping && !runningStep && serverRunning.isRunning)}
-                            className="text-xs bg-red-500/20 text-red-500 px-3 py-1 rounded-full hover:bg-red-500 hover:text-white transition-colors flex items-center gap-1"
-                        >
-                            <Square className="w-3 h-3 fill-current" />
-                            {!isLooping && !runningStep && serverRunning.isRunning ? 'Forcer arrêt' : 'Stop'}
-                        </button>
+                        {/* Stop Button */}
+                        <div className="flex gap-2">
+                            <button
+                                onClick={() => stopLoop(!isLooping && !runningStep && serverRunning.isRunning)}
+                                className="text-xs bg-red-500/20 text-red-500 px-3 py-1 rounded-full hover:bg-red-500 hover:text-white transition-colors flex items-center gap-1"
+                            >
+                                <Square className="w-3 h-3 fill-current" />
+                                {!isLooping && !runningStep && serverRunning.isRunning ? 'Forcer arrêt' : 'Stop'}
+                            </button>
+                        </div>
                     </div>
                     <div className="text-2xl font-mono text-accent text-center mt-2">
                         {!isLooping && !runningStep && serverRunning.isRunning
