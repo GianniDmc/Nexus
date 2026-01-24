@@ -51,7 +51,7 @@ async function processBatch(
         content: content,
         source_url: item.link,
         source_name: source.name,
-        author: item.creator || item.author,
+        author: item.creator || (item as any).author,
         published_at: item.isoDate ? new Date(item.isoDate).toISOString() : new Date().toISOString(),
         category: source.category,
         image_url: imageUrl,
