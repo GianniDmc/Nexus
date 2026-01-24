@@ -120,9 +120,15 @@ export default function AdminPage() {
                     </div>
                     <div className="w-full h-px bg-border my-2" />
                     <div className="flex justify-between items-center text-xs">
-                      <span className="text-accent font-bold">À Rédiger</span>
-                      <span className="text-accent font-bold">{stats?.pendingSummary || 0}</span>
+                      <span className="text-accent font-bold">À Rédiger (Actionnable)</span>
+                      <span className="text-accent font-bold text-lg">{stats?.pendingActionable || 0}</span>
                     </div>
+                    {stats?.pendingSkipped > 0 && (
+                      <div className="flex justify-between items-center text-[10px] text-muted">
+                        <span>(Doublons ignorés)</span>
+                        <span>{stats?.pendingSkipped}</span>
+                      </div>
+                    )}
                     <div className="flex justify-between items-center text-xs">
                       <span className="text-blue-500 font-bold">Prêts (En attente)</span>
                       <span className="text-blue-500 font-bold">{stats?.ready || 0}</span>
