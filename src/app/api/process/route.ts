@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const stepParam = searchParams.get('step');
 
-  let body: { step?: string, config?: AIOverrideConfig } = {};
+  let body: { step?: string, config?: AIOverrideConfig, freshOnly?: boolean, minSources?: number } = {};
   try {
     body = await req.json();
   } catch (e) {
@@ -213,12 +213,21 @@ export async function POST(req: NextRequest) {
 
       const publishedClusterIds = new Set(publishedClusters?.map((item) => item.cluster_id));
 
-      const { data: clustersToProcess } = await supabase
+      // Build rewriting query
+      let query = supabase
         .from('articles')
         .select('cluster_id')
         .gte('final_score', publishThreshold)
-        .is('summary_short', null)
-        .is('summary_short', null)
+        .is('summary_short', null);
+
+      // Option: Only fresh content (< 48h)
+      // On récupère `freshOnly` depuis le body (envoyé par le frontend)
+      if (body.freshOnly) {
+        const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+        query = query.gte('published_at', twoDaysAgo);
+      }
+
+      const { data: clustersToProcess } = await query
         .order('final_score', { ascending: false })
         .limit(processingLimit);
 
@@ -244,6 +253,21 @@ export async function POST(req: NextRequest) {
         await updateProgress(results.rewritten + 1, uniqueClusterIds.length, `Rédaction (${results.rewritten + 1}/${uniqueClusterIds.length})...`);
 
         if (await shouldStopProcessing()) { results.stopped = true; break; }
+
+        // Option: Min Sources Filter
+        if (body.minSources && body.minSources > 1) {
+          const { data: clusterArticles } = await supabase
+            .from('articles')
+            .select('source_name')
+            .eq('cluster_id', clusterId);
+
+          const uniqueSources = new Set(clusterArticles?.map(a => a.source_name)).size;
+          if (uniqueSources < body.minSources) {
+            console.log(`[PROCESS] Skipped cluster ${clusterId} (Sources: ${uniqueSources} < ${body.minSources})`);
+            await updateProgress(results.rewritten + 1, uniqueClusterIds.length, `Skipped (Src < ${body.minSources})...`);
+            continue;
+          }
+        }
 
         const { data: sources } = await supabase
           .from('articles')
