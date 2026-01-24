@@ -12,88 +12,120 @@ const parser = new Parser({
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-export async function GET() {
+// Configuration de la parallélisation
+const BATCH_SIZE = 5; // Nombre d'articles scrapés en parallèle
+const BATCH_DELAY_MS = 300; // Délai entre chaque batch pour éviter le rate-limit
+
+// Fonction pour traiter un batch d'articles en parallèle
+async function processBatch(
+  items: Parser.Item[],
+  source: { name: string; category: string },
+  supabase: ReturnType<typeof createClient>
+): Promise<{ added: number; results: any[] }> {
+  let added = 0;
+  const results: any[] = [];
+
+  const processedItems = await Promise.all(
+    items.map(async (item) => {
+      if (!item.link) return null;
+
+      // Get RSS content as baseline
+      let content = item.contentSnippet || item.content || '';
+      let imageUrl: string | null = null;
+
+      // Scrape source URL for og:image and potentially richer content
+      try {
+        const scraped = await scrapeArticle(item.link);
+        imageUrl = scraped.imageUrl;
+
+        // Use scraped content if it's significantly longer than RSS snippet
+        if (scraped.fullContent && scraped.fullContent.length > content.length * 1.5) {
+          content = scraped.fullContent;
+        }
+      } catch (scrapeErr) {
+        console.warn(`[INGEST] Scrape failed for ${item.link}, using RSS content`);
+      }
+
+      return {
+        title: item.title,
+        content: content,
+        source_url: item.link,
+        source_name: source.name,
+        author: item.creator || item.author,
+        published_at: item.isoDate ? new Date(item.isoDate).toISOString() : new Date().toISOString(),
+        category: source.category,
+        image_url: imageUrl,
+      };
+    })
+  );
+
+  // Filter out null items and batch upsert
+  const validItems = processedItems.filter(item => item !== null);
+
+  if (validItems.length > 0) {
+    const { data, error } = await supabase
+      .from('articles')
+      .upsert(validItems, { onConflict: 'source_url', ignoreDuplicates: true })
+      .select();
+
+    if (error) {
+      console.error(`[INGEST] Batch upsert failed: ${error.message}`);
+    } else if (data) {
+      added = data.length;
+      results.push(...data);
+    }
+  }
+
+  return { added, results };
+}
+
+export async function GET(req: Request) {
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 
+  const { searchParams } = new URL(req.url);
+  const sourceFilter = searchParams.get('source'); // Filter by source name
+
   try {
-    const { data: sources, error: sourcesError } = await supabase
-      .from('sources')
-      .select('*')
-      .eq('is_active', true);
+    let query = supabase.from('sources').select('*').eq('is_active', true);
+
+    if (sourceFilter) {
+      query = query.eq('name', sourceFilter);
+    }
+
+    const { data: sources, error: sourcesError } = await query;
 
     if (sourcesError) throw sourcesError;
 
-    const results = [];
-    const errors = [];
+    const results: any[] = [];
+    const errors: { source: string; error: string }[] = [];
 
     for (const source of sources) {
       try {
         const feed = await parser.parseURL(source.url);
-        let skipped = 0;
-        let added = 0;
-        console.log(`[INGEST] Source: ${source.name} - ${feed.items.length} items in RSS`);
+        const validItems = feed.items.filter(item => item.link);
 
-        for (const item of feed.items) {
-          if (!item.link) continue;
+        console.log(`[INGEST] Source: ${source.name} - ${validItems.length} items in RSS`);
 
-          // Check if article already exists
-          const { data: existing } = await supabase
-            .from('articles')
-            .select('id')
-            .eq('source_url', item.link)
-            .single();
+        let totalAdded = 0;
 
-          if (existing) {
-            skipped++;
-            continue; // Skip if already ingested
-          }
+        // Process items in batches
+        for (let i = 0; i < validItems.length; i += BATCH_SIZE) {
+          const batch = validItems.slice(i, i + BATCH_SIZE);
+          const { added, results: batchResults } = await processBatch(batch, source, supabase);
 
-          // Get RSS content as baseline
-          let content = item.contentSnippet || item.content || '';
-          let imageUrl: string | null = null;
+          totalAdded += added;
+          results.push(...batchResults);
 
-          // Scrape source URL for og:image and potentially richer content
-          try {
-            const scraped = await scrapeArticle(item.link);
-            imageUrl = scraped.imageUrl;
-
-            // Use scraped content if it's significantly longer than RSS snippet
-            if (scraped.fullContent && scraped.fullContent.length > content.length * 1.5) {
-              content = scraped.fullContent;
-            }
-
-            // Small delay to be respectful to source servers
-            await sleep(500);
-          } catch (scrapeErr) {
-            console.warn(`[INGEST] Scrape failed for ${item.link}, using RSS content`);
-          }
-
-          const { data, error } = await supabase
-            .from('articles')
-            .upsert({
-              title: item.title,
-              content: content,
-              source_url: item.link,
-              source_name: source.name,
-              author: item.creator || item.author,
-              published_at: item.isoDate ? new Date(item.isoDate).toISOString() : new Date().toISOString(),
-              category: source.category,
-              image_url: imageUrl,
-            }, { onConflict: 'source_url', ignoreDuplicates: true })
-            .select()
-            .single();
-
-          if (error) {
-            console.error(`[INGEST] Insert failed for "${item.title}": ${error.message}`);
-          } else if (data) {
-            added++;
-            results.push(data);
+          // Small delay between batches to be respectful to source servers
+          if (i + BATCH_SIZE < validItems.length) {
+            await sleep(BATCH_DELAY_MS);
           }
         }
-        console.log(`[INGEST] Source ${source.name} - Skipped: ${skipped}, Added: ${added}`);
+
+        console.log(`[INGEST] Source ${source.name} - Added: ${totalAdded}`);
 
         await supabase
           .from('sources')

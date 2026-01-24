@@ -80,8 +80,28 @@ export async function GET(request: Request) {
 
         if (error) throw error;
 
+        // Enrich with cluster_size (count articles per cluster)
+        const clusterIds = [...new Set(data?.map(a => a.cluster_id).filter(Boolean) || [])];
+        const clusterSizes: Record<string, number> = {};
+
+        if (clusterIds.length > 0) {
+            const { data: clusterArticles } = await supabase
+                .from('articles')
+                .select('cluster_id')
+                .in('cluster_id', clusterIds);
+
+            clusterArticles?.forEach(a => {
+                if (a.cluster_id) clusterSizes[a.cluster_id] = (clusterSizes[a.cluster_id] || 0) + 1;
+            });
+        }
+
+        const enrichedArticles = data?.map(article => ({
+            ...article,
+            cluster_size: article.cluster_id ? (clusterSizes[article.cluster_id] || 1) : 0
+        }));
+
         return NextResponse.json({
-            articles: data,
+            articles: enrichedArticles,
             total: count,
             page,
             totalPages: count ? Math.ceil(count / limit) : 0
