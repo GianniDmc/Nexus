@@ -111,6 +111,21 @@ export function AutoProcessor({ onStatsUpdate }: { onStatsUpdate?: () => void })
 
         addLog("🚀 Démarrage du Pilote Automatique");
 
+        // 1. Force Ingest fresh news first
+        addLog("🌍 Vérification des sources RSS...");
+        try {
+            const ingestRes = await fetch('/api/ingest');
+            const ingestData = await ingestRes.json();
+            if (ingestData.success && ingestData.articlesIngested > 0) {
+                addLog(`✅ ${ingestData.articlesIngested} nouveaux articles récupérés.`);
+            } else {
+                addLog("✓ Aucune nouvelle news (sources à jour).");
+            }
+        } catch (e) {
+            addLog("⚠️ Erreur ingestion (on continue le traitement).");
+        }
+
+        // 2. Process Loop
         let keepGoing = true;
         while (keepGoing && !abortControllerRef.current?.signal.aborted) {
             keepGoing = await runCycle();
