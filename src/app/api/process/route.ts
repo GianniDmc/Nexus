@@ -124,8 +124,23 @@ export async function GET() {
       .order('final_score', { ascending: false })
       .limit(10);
 
-    const uniqueClusterIds = Array.from(new Set(clustersToProcess?.map(a => a.cluster_id)))
-      .filter((clusterId) => clusterId && !publishedClusterIds.has(clusterId));
+    // Filter out published clusters (Zombies)
+    const candidates = Array.from(new Set(clustersToProcess?.map(a => a.cluster_id)));
+    const uniqueClusterIds: string[] = [];
+
+    for (const cid of candidates) {
+      if (!cid) continue;
+      if (publishedClusterIds.has(cid)) {
+        // ZOMBIE DETECTED: Cluster already published.
+        // Mark all articles in this cluster as skipped to unblock the queue.
+        await supabase.from('articles')
+          .update({ summary_short: '{"skipped": true, "reason": "zombie_cluster"}' })
+          .eq('cluster_id', cid)
+          .is('summary_short', null);
+      } else {
+        uniqueClusterIds.push(cid);
+      }
+    }
 
     let rewrittenCount = 0;
     for (const clusterId of uniqueClusterIds) {
