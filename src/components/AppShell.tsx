@@ -10,7 +10,8 @@ import {
   X,
   Sparkles,
   Archive,
-  Bookmark
+  Bookmark,
+  Calendar
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 
@@ -93,6 +94,7 @@ export function AppShell({ children }: AppShellProps) {
             <Suspense fallback={<div className="animate-pulse space-y-2"><div className="h-8 bg-muted/20 rounded"></div><div className="h-8 bg-muted/20 rounded"></div></div>}>
               <div className="space-y-1">
                 <SidebarLink href="/?filter=recent" icon={<Sparkles className="w-4 h-4" />} label="Aujourd'hui" />
+                <SidebarLink href="/?filter=week" icon={<Calendar className="w-4 h-4" />} label="Cette semaine" />
                 <SidebarLink href="/?filter=archives" icon={<Archive className="w-4 h-4" />} label="Archives" />
                 <SidebarLink href="/?filter=saved" icon={<Bookmark className="w-4 h-4" />} label="Ma liste" />
               </div>
