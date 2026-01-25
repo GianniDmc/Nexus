@@ -73,7 +73,7 @@ export default function AdminPage() {
               className={`pb-3 text-sm font-bold uppercase tracking-wider flex items-center gap-2 border-b-2 transition-colors ${activeTab === 'editorial' ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-primary'
                 }`}
             >
-              <FileText className="w-4 h-4" /> Éditorial (CMS)
+              <FileText className="w-4 h-4" /> Éditorial (Sujets)
             </button>
             <button
               onClick={() => setActiveTab('clusters')}

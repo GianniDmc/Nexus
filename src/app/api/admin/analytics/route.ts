@@ -17,19 +17,22 @@ export async function GET() {
             .from('articles')
             .select('*', { count: 'exact', head: true });
 
+        // Published -> Clusters that are published
         const { count: publishedCount } = await supabase
-            .from('articles')
+            .from('clusters')
             .select('*', { count: 'exact', head: true })
             .eq('is_published', true);
 
+        // Pending -> Clusters scored > 5, not published
         const { count: pendingCount } = await supabase
-            .from('articles')
+            .from('clusters')
             .select('*', { count: 'exact', head: true })
             .eq('is_published', false)
             .gt('final_score', 5);
 
+        // Rejected -> Clusters scored <= 5
         const { count: rejectedCount } = await supabase
-            .from('articles')
+            .from('clusters')
             .select('*', { count: 'exact', head: true })
             .lte('final_score', 5)
             .not('final_score', 'is', null);
@@ -44,11 +47,14 @@ export async function GET() {
             .select('*', { count: 'exact', head: true })
             .gte('created_at', oneWeekAgo.toISOString());
 
-        // 2. Category Distribution
+        // 2. Category Distribution (from Summaries or Clusters? Using Articles for now as fallback, but ideally Summaries)
+        // Note: category on articles might be raw RSS category. Summaries don't have category column yet?
+        // Let's stick to articles for category for now, or use clusters if they have it.
+        // Assuming articles.category is populated.
         const { data: categoryData } = await supabase
             .from('articles')
-            .select('category')
-            .eq('is_published', true);
+            .select('category');
+        // .eq('is_published', true); // No longer applies to articles directly
 
         const categoryMap: Record<string, number> = {};
         categoryData?.forEach((a) => {
@@ -59,9 +65,9 @@ export async function GET() {
             .map(([name, value]) => ({ name, value }))
             .sort((a, b) => b.value - a.value);
 
-        // 3. Score Distribution (histogram buckets)
+        // 3. Score Distribution (histogram buckets) - FROM CLUSTERS
         const { data: scoreData } = await supabase
-            .from('articles')
+            .from('clusters')
             .select('final_score')
             .not('final_score', 'is', null);
 
@@ -72,8 +78,8 @@ export async function GET() {
             { range: '7-8', count: 0 },
             { range: '9-10', count: 0 },
         ];
-        scoreData?.forEach((a) => {
-            const score = a.final_score || 0;
+        scoreData?.forEach((c) => {
+            const score = c.final_score || 0;
             if (score <= 2) scoreBuckets[0].count++;
             else if (score <= 4) scoreBuckets[1].count++;
             else if (score <= 6) scoreBuckets[2].count++;

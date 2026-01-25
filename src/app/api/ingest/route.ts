@@ -14,8 +14,9 @@ const parser = new Parser({
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // Configuration de la parallélisation
-const BATCH_SIZE = 5; // Nombre d'articles scrapés en parallèle
-const BATCH_DELAY_MS = 300; // Délai entre chaque batch pour éviter le rate-limit
+const BATCH_SIZE = 10; // Increased from 5
+const BATCH_DELAY_MS = 200; // Reduced from 300
+const SOURCE_CONCURRENCY = 3; // New: Process 3 sources in parallel
 
 // Fonction pour traiter un batch d'articles en parallèle
 async function processBatch(
@@ -80,6 +81,55 @@ async function processBatch(
   return { added, results };
 }
 
+async function processSource(source: any, supabase: any) {
+  const results: any[] = [];
+
+  try {
+    const feed = await parser.parseURL(source.url);
+
+    const ingestionCutoff = getIngestionCutoff();
+    const allItems = feed.items;
+
+    const validItems = allItems.filter(item => {
+      if (!item.link) return false;
+      const pubDate = item.isoDate ? new Date(item.isoDate) : (item.pubDate ? new Date(item.pubDate) : new Date());
+      return pubDate >= ingestionCutoff;
+    });
+
+    const skippedCount = allItems.length - validItems.length;
+    console.log(`[INGEST] Source: ${source.name} - ${validItems.length} items to process (${skippedCount} older than ${PUBLICATION_RULES.INGESTION_MAX_AGE_HOURS}h)`);
+
+    let totalAdded = 0;
+
+    // Process items in batches
+    for (let i = 0; i < validItems.length; i += BATCH_SIZE) {
+      const batch = validItems.slice(i, i + BATCH_SIZE);
+      const { added, results: batchResults } = await processBatch(batch, source, supabase);
+
+      totalAdded += added;
+      results.push(...batchResults);
+
+      // Small delay between batches to be respectful to source servers
+      if (i + BATCH_SIZE < validItems.length) {
+        await sleep(BATCH_DELAY_MS);
+      }
+    }
+
+    console.log(`[INGEST] Source ${source.name} - Added: ${totalAdded}`);
+
+    await supabase
+      .from('sources')
+      .update({ last_fetched_at: new Date().toISOString() })
+      .eq('id', source.id);
+
+    return { success: true, results, sourceName: source.name };
+
+  } catch (sourceError: any) {
+    console.error(`Erreur sur la source ${source.name}:`, sourceError.message);
+    return { success: false, error: sourceError.message, sourceName: source.name };
+  }
+}
+
 export async function GET(req: Request) {
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -100,59 +150,29 @@ export async function GET(req: Request) {
 
     if (sourcesError) throw sourcesError;
 
-    const results: any[] = [];
-    const errors: { source: string; error: string }[] = [];
+    const allResults: any[] = [];
+    const allErrors: { source: string; error: string }[] = [];
 
-    for (const source of sources) {
-      try {
-        const feed = await parser.parseURL(source.url);
+    // Process sources in chunks for concurrency
+    for (let i = 0; i < sources.length; i += SOURCE_CONCURRENCY) {
+      const chunk = sources.slice(i, i + SOURCE_CONCURRENCY);
+      const chunkPromises = chunk.map(source => processSource(source, supabase));
 
-        const ingestionCutoff = getIngestionCutoff();
-        const allItems = feed.items;
+      const chunkResults = await Promise.all(chunkPromises);
 
-        const validItems = allItems.filter(item => {
-          if (!item.link) return false;
-          const pubDate = item.isoDate ? new Date(item.isoDate) : (item.pubDate ? new Date(item.pubDate) : new Date());
-          return pubDate >= ingestionCutoff;
-        });
-
-        const skippedCount = allItems.length - validItems.length;
-        console.log(`[INGEST] Source: ${source.name} - ${validItems.length} items to process (${skippedCount} older than ${PUBLICATION_RULES.INGESTION_MAX_AGE_HOURS}h)`);
-
-        let totalAdded = 0;
-
-        // Process items in batches
-        for (let i = 0; i < validItems.length; i += BATCH_SIZE) {
-          const batch = validItems.slice(i, i + BATCH_SIZE);
-          const { added, results: batchResults } = await processBatch(batch, source, supabase);
-
-          totalAdded += added;
-          results.push(...batchResults);
-
-          // Small delay between batches to be respectful to source servers
-          if (i + BATCH_SIZE < validItems.length) {
-            await sleep(BATCH_DELAY_MS);
-          }
+      for (const res of chunkResults) {
+        if (res.success) {
+          allResults.push(...res.results);
+        } else {
+          allErrors.push({ source: res.sourceName, error: res.error });
         }
-
-        console.log(`[INGEST] Source ${source.name} - Added: ${totalAdded}`);
-
-        await supabase
-          .from('sources')
-          .update({ last_fetched_at: new Date().toISOString() })
-          .eq('id', source.id);
-
-      } catch (sourceError: any) {
-        console.error(`Erreur sur la source ${source.name}:`, sourceError.message);
-        errors.push({ source: source.name, error: sourceError.message });
-        // On continue avec la source suivante au lieu de tout arrêter
       }
     }
 
     return NextResponse.json({
       success: true,
-      articlesIngested: results.length,
-      failedSources: errors
+      articlesIngested: allResults.length,
+      failedSources: allErrors
     });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });

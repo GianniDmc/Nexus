@@ -197,6 +197,52 @@ export function computeFinalScore(
   return Math.min(10, Math.round(score * 10) / 10);
 }
 
+// Nouvelle fonction Cluster-Centric Scoring
+export async function scoreCluster(
+  articles: { id: string, title: string, content: string, source_name: string }[],
+  overrideConfig?: AIOverrideConfig
+) {
+  if (articles.length === 0) return { score: 0, representative_id: null };
+
+  const articlesText = articles.map(a => `ID: ${a.id}\nSOURCE: ${a.source_name}\nTITRE: ${a.title}\nEXTRAIT: ${a.content?.substring(0, 500)}`).join('\n\n---\n\n');
+
+  const prompt = `
+Tu es un rédacteur en chef Tech. Évalue l'intérêt de ce SUJET d'actualité (regroupé en cluster d'articles).
+
+Critères (Score 0-10) :
+- Impact : Est-ce une news majeure ou anecdotique ?
+- Tech Focus : Est-ce pertinent pour une veille technologique ? (Politique/Fait divers = 0 sauf si impact tech majeur).
+- Fraîcheur : Est-ce une info récente ?
+
+Tâche :
+1. Donne un score global au sujet (0-10).
+2. Identifie l'ID de l'article le plus complet/informatif qui servira de base pour la synthèse (representative_id).
+
+Articles du cluster :
+${articlesText}
+
+Réponds UNIQUEMENT un JSON : { "score": number, "representative_id": "uuid_string" }
+`;
+
+  try {
+    const response = await createChatCompletion({
+      model: 'llama-3.3-70b-versatile',
+      messages: [{ role: 'user', content: prompt }],
+      response_format: { type: 'json_object' }
+    }, overrideConfig, 'fast'); // Scoring is fast
+
+    const result = JSON.parse(response.choices[0].message.content || '{}');
+    return {
+      score: typeof result.score === 'number' ? result.score : 0,
+      representative_id: result.representative_id || articles[0].id
+    };
+  } catch (error) {
+    console.error("Cluster Scoring Failed:", error);
+    // Fallback: Moyenne ou 0, et premier article par défaut
+    return { score: 0, representative_id: articles.length > 0 ? articles[0].id : null };
+  }
+}
+
 export async function rewriteArticle(
   sources: { title: string, content: string, source_name: string }[],
   overrideConfig?: AIOverrideConfig

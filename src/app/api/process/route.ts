@@ -4,7 +4,8 @@ import {
   scoreBatchArticles,
   rewriteArticle,
   generateEmbedding,
-  computeFinalScore
+  computeFinalScore,
+  scoreCluster
 } from '@/lib/ai';
 import {
   startProcessing,
@@ -120,7 +121,7 @@ export async function POST(req: NextRequest) {
     if (step === 'clustering' || step === 'all') {
       const { data: needsClustering } = await supabase
         .from('articles')
-        .select('id, title, embedding')
+        .select('id, title, embedding, published_at')
         .not('embedding', 'is', null)
         .is('cluster_id', null)
         .limit(10);
@@ -128,15 +129,21 @@ export async function POST(req: NextRequest) {
       if (needsClustering && needsClustering.length > 0) {
         for (const article of needsClustering) {
           if (await shouldStopProcessing()) { results.stopped = true; break; }
-          const { data: match } = await supabase.rpc('find_similar_articles', {
+          const { data: matches } = await supabase.rpc('find_similar_articles', {
             query_embedding: article.embedding,
-            match_threshold: 0.75, // Balanced threshold (was 0.60, then 0.80)
-            match_count: 1,
-            lookback_days: 3
+            match_threshold: 0.75,
+            match_count: 20, // Increased from 5 to 20 to handle high volume/redundancy
+            anchor_date: article.published_at || new Date().toISOString(),
+            window_days: 7,
+            exclude_id: article.id
           });
 
-          if (match && match.length > 0 && match[0].cluster_id) {
-            await supabase.from('articles').update({ cluster_id: match[0].cluster_id }).eq('id', article.id);
+          // Strategy: Prefer joining an existing cluster (even if it's the 2nd or 3rd best match)
+          // to avoid fragmentation.
+          const bestMatchWithCluster = matches?.find((m: any) => m.cluster_id);
+
+          if (bestMatchWithCluster) {
+            await supabase.from('articles').update({ cluster_id: bestMatchWithCluster.cluster_id }).eq('id', article.id);
           } else {
             const { data: newCluster } = await supabase
               .from('clusters')
@@ -153,57 +160,56 @@ export async function POST(req: NextRequest) {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // STEP 3: SCORING
+    // STEP 3: SCORING (Cluster Centric)
     // ═══════════════════════════════════════════════════════════════════
     if (step === 'scoring' || step === 'all') {
-      const { data: needsScoring } = await supabase
-        .from('articles')
-        .select('id, title, content, published_at, cluster_id')
-        .is('relevance_score', null)
+      // Fetch clusters needing scoring (final_score is null)
+      const { data: clustersToScore, error: scoreQueryError } = await supabase
+        .from('clusters')
+        .select(`
+          id,
+          articles:articles!articles_cluster_id_fkey (
+            id,
+            title,
+            content,
+            source_name
+          )
+        `)
+        .is('final_score', null)
         .limit(processingLimit);
 
-      if (needsScoring && needsScoring.length > 0) {
-        const { count: remainingCount } = await supabase
-          .from('articles')
-          .select('*', { count: 'exact', head: true })
-          .is('relevance_score', null);
+      if (scoreQueryError) {
+        console.error("Scoring Query Error:", scoreQueryError);
+      }
 
-        const batchSize = hasPaidKey ? 25 : 5;
-        await updateProgress(0, needsScoring.length, `Démarrage scoring (Reste: ${remainingCount})...`);
+      if (clustersToScore && clustersToScore.length > 0) {
+        await updateProgress(0, clustersToScore.length, `Scoring de ${clustersToScore.length} clusters...`);
 
-        for (let i = 0; i < needsScoring.length; i += batchSize) {
+        for (const cluster of clustersToScore) {
           if (await shouldStopProcessing()) { results.stopped = true; break; }
-          const batch = needsScoring.slice(i, i + batchSize);
-          const batchForAI = batch.map(a => ({ id: a.id, title: a.title, content: a.content || '' }));
-          const scoresMap = await scoreBatchArticles(batchForAI, aiConfig);
 
-          // Check stop again after long LLM call
-          if (await shouldStopProcessing()) { results.stopped = true; break; }
+          // Supabase typing for joined relations can be tricky, casting safely
+          const articles = (Array.isArray(cluster.articles) ? cluster.articles : []) as any[];
+
+          if (articles.length === 0) {
+            // Should not happen, but safeguard
+            await supabase.from('clusters').update({ final_score: 0 }).eq('id', cluster.id);
+            continue;
+          }
+
+          // New Cluster-Centric Scoring
+          const evaluation = await scoreCluster(articles, aiConfig);
 
           await sleep(llmDelayMs);
 
-          for (const article of batch) {
-            const baseScore = scoresMap[article.id] || 0;
-            const { count: sourcesCount } = await supabase
-              .from('articles')
-              .select('*', { count: 'exact', head: true })
-              .eq('cluster_id', article.cluster_id);
+          // Save score and representative article to Cluster
+          await supabase.from('clusters').update({
+            final_score: evaluation.score,
+            representative_article_id: evaluation.representative_id
+          }).eq('id', cluster.id);
 
-            const finalScore = computeFinalScore(baseScore, {
-              contentLength: article.content?.length,
-              publishedAt: article.published_at,
-              sourcesCount: sourcesCount || 1
-            });
-
-            await supabase.from('articles').update({
-              relevance_score: baseScore,
-              final_score: finalScore
-            }).eq('id', article.id);
-
-            results.scored++;
-          }
-          results.batches++;
-          await updateProgress(Math.min(i + batchSize, needsScoring.length), needsScoring.length, `Notation lot ${results.batches} (Reste global: ${remainingCount})...`);
+          results.scored++;
+          await updateProgress(results.scored, clustersToScore.length, `Scoring (${results.scored}/${clustersToScore.length})`);
         }
       }
     }
@@ -212,75 +218,73 @@ export async function POST(req: NextRequest) {
     // STEP 4: REWRITING & PUBLISHING
     // ═══════════════════════════════════════════════════════════════════
     if (step === 'rewriting' || step === 'all') {
+      // Log start
+      // console.log(`[REWRITE] Starting rewriting step...`);
+
       const { data: publishedClusters } = await supabase
-        .from('articles')
-        .select('cluster_id')
-        .eq('is_published', true)
-        .not('cluster_id', 'is', null);
+        .from('clusters')
+        .select('id')
+        .eq('is_published', true);
 
-      const publishedClusterIds = new Set(publishedClusters?.map((item) => item.cluster_id));
+      const publishedClusterIds = new Set(publishedClusters?.map((item) => item.id));
 
-      // Build rewriting query
+
+      // Build rewriting query - Select CLUSTERS based on THEIR score
       let query = supabase
-        .from('articles')
-        .select('cluster_id')
+        .from('clusters')
+        .select('id, final_score')
         .gte('final_score', publishThreshold)
-        .is('summary_short', null);
-
-      const { data: clustersToProcess } = await query
+        .eq('is_published', false) // Only unpublished clusters
         .order('final_score', { ascending: false })
-        .limit(processingLimit * 2); // Fetch more to filter by freshness at cluster level
+        .limit(processingLimit * 5); // Fetch more to allow for filtering
 
-      const candidates = Array.from(new Set(clustersToProcess?.map(a => a.cluster_id)));
-      const uniqueClusterIds: string[] = [];
+      const { data: clustersToProcess } = await query;
 
-      for (const cid of candidates) {
-        if (!cid) continue;
-        if (publishedClusterIds.has(cid)) {
-          await supabase.from('articles')
-            .update({ summary_short: '{"skipped": true, "reason": "zombie_cluster"}' })
-            .eq('cluster_id', cid)
-            .is('summary_short', null);
-        } else {
-          uniqueClusterIds.push(cid);
-        }
-      }
-
-      // Filter clusters based on freshness and sources at cluster level
-      const freshnessCutoff = pubConfig.freshnessCutoff;
       const filteredClusterIds: string[] = [];
+      const freshnessCutoff = pubConfig.freshnessCutoff;
 
-      for (const clusterId of uniqueClusterIds) {
-        if (!clusterId) continue;
+      if (clustersToProcess) {
+        for (const cluster of clustersToProcess) {
+          if (publishedClusterIds.has(cluster.id)) continue;
 
-        const { data: clusterArticles } = await supabase
-          .from('articles')
-          .select('source_name, published_at')
-          .eq('cluster_id', clusterId);
 
-        if (!clusterArticles || clusterArticles.length === 0) continue;
 
-        // Check freshness: cluster must have at least one fresh article
-        if (pubConfig.freshOnly) {
-          const hasFreshArticle = clusterArticles.some(a => a.published_at >= freshnessCutoff);
-          if (!hasFreshArticle) {
-            console.log(`[PROCESS] Skipped cluster ${clusterId} (No fresh article < ${PUBLICATION_RULES.FRESHNESS_HOURS}h)`);
+          // Hydrate with articles to check Freshness and Source Count
+          const { data: clusterArticles } = await supabase
+            .from('articles')
+            .select('source_name, published_at')
+            .eq('cluster_id', cluster.id);
+
+          if (!clusterArticles || clusterArticles.length === 0) {
+
             continue;
           }
-        }
 
-        // Check min sources
-        if (pubConfig.minSources > 1) {
-          const uniqueSources = new Set(clusterArticles.map(a => a.source_name)).size;
-          if (uniqueSources < pubConfig.minSources) {
-            console.log(`[PROCESS] Skipped cluster ${clusterId} (Sources: ${uniqueSources} < ${pubConfig.minSources})`);
-            continue;
+          // Check freshness: cluster must have at least one fresh article
+          // (Unless freshOnly is false)
+          if (pubConfig.freshOnly) {
+            const hasFreshArticle = clusterArticles.some(a => a.published_at >= freshnessCutoff);
+
+            if (!hasFreshArticle) {
+              continue;
+            }
           }
-        }
 
-        filteredClusterIds.push(clusterId);
-        if (filteredClusterIds.length >= processingLimit) break;
+          // Check min sources
+          if (pubConfig.minSources > 1) {
+            const uniqueSources = new Set(clusterArticles.map(a => a.source_name)).size;
+
+            if (uniqueSources < pubConfig.minSources) {
+              continue;
+            }
+          }
+
+          filteredClusterIds.push(cluster.id);
+          if (filteredClusterIds.length >= processingLimit) break;
+        }
       }
+
+
 
       await updateProgress(0, filteredClusterIds.length, `Démarrage rédaction (${filteredClusterIds.length} clusters qualifiés)...`);
 
@@ -296,7 +300,12 @@ export async function POST(req: NextRequest) {
           .order('final_score', { ascending: false });
 
         if (sources && sources.length > 0) {
-          const rewritten = await rewriteArticle(sources, aiConfig);
+          let rewritten = null;
+          try {
+            rewritten = await rewriteArticle(sources, aiConfig);
+          } catch (e) {
+            console.error(`[REWRITE ERROR] Exception during rewriteArticle:`, e);
+          }
 
           if (await shouldStopProcessing()) { results.stopped = true; break; }
 
@@ -305,36 +314,44 @@ export async function POST(req: NextRequest) {
           if (rewritten) {
             const { data: topArticle } = await supabase
               .from('articles')
-              .select('id, final_score')
+              .select('id, final_score, title, image_url')
               .eq('cluster_id', clusterId)
               .order('final_score', { ascending: false })
               .limit(1)
               .single();
 
             if (topArticle) {
-              await supabase.from('articles').update({
+              // 1. Save synthesized content to 'summaries' table
+              const { error: insertError } = await supabase.from('summaries').upsert({
+                cluster_id: clusterId,
                 title: rewritten.title,
-                category: rewritten.category,
-                summary_short: JSON.stringify({
-                  tldr: rewritten.tldr,
-                  full: rewritten.content,
-                  analysis: rewritten.impact,
-                  isFullSynthesis: true,
-                  sourceCount: sources.length
-                }),
-                is_published: true,
-                published_on: todayDate
-              }).eq('id', topArticle.id);
+                content_tldr: rewritten.tldr,
+                content_analysis: rewritten.impact,
+                content_full: rewritten.content,
+                image_url: topArticle.image_url,
+                source_count: sources.length,
+                model_name: aiConfig?.preferredProvider || 'auto'
+              }, { onConflict: 'cluster_id' });
 
-              await supabase.from('clusters').update({
-                is_published: true,
-                final_score: topArticle.final_score,
-                last_processed_at: new Date().toISOString(),
-                published_on: todayDate
-              }).eq('id', clusterId);
+              if (insertError) {
+                console.error(`[DB ERROR] Failed to insert summary for cluster ${clusterId}:`, insertError);
+              } else {
+                // 2. Update cluster metadata (status, label, image)
+                await supabase.from('clusters').update({
+                  is_published: true,
+                  last_processed_at: new Date().toISOString(),
+                  published_on: todayDate,
+                  label: rewritten.title,
+                  image_url: topArticle.image_url
+                }).eq('id', clusterId);
 
-              results.rewritten++;
+                results.rewritten++;
+              }
+            } else {
+              console.warn(`[DB WARNING] Could not find top article for cluster ${clusterId}`);
             }
+          } else {
+            console.warn(`[REWRITE FAILED] internal rewriteArticle returned null for cluster ${clusterId}`);
           }
         }
       }

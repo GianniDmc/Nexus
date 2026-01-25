@@ -66,48 +66,63 @@ export default function NewsFeed() {
     setReadingList(getStoredSet(STORAGE_KEYS.READING_LIST));
   }, []);
 
-  // Fetch articles
+  // Fetch clusters (published stories)
   useEffect(() => {
     async function fetchData() {
       setLoading(true);
 
+      // New Architecture: Fetch Published Clusters with Summaries
       const { data, error } = await supabase
-        .from('articles')
-        .select('*')
+        .from('clusters')
+        .select(`
+          *,
+          summaries (*),
+          representative_article:articles!representative_article_id (category)
+        `)
         .eq('is_published', true)
-        .not('summary_short', 'is', null)
-        .order('published_at', { ascending: false })
-        .limit(300);
+        .order('published_on', { ascending: false })
+        .limit(100);
 
       if (!error && data) {
-        const validArticles = data.filter(article => {
-          try {
-            const summary = JSON.parse(article.summary_short);
-            return summary && summary.tldr;
-          } catch {
-            return false;
-          }
-        });
+        // Map clusters to the existing "Article-like" item structure to preserve UI compatibility
+        const mappedItems = data
+          .filter(cluster => {
+            if (!cluster.summaries) return false;
+            if (Array.isArray(cluster.summaries)) return cluster.summaries.length > 0;
+            return true;
+          })
+          .map(cluster => {
+            const summary = Array.isArray(cluster.summaries) ? cluster.summaries[0] : cluster.summaries;
+            const category = (cluster.representative_article as any)?.category || 'General';
 
-        // Deduplicate by cluster
-        const uniqueItems: any[] = [];
-        const seenClusters = new Set();
+            return {
+              id: cluster.id, // Use Cluster ID as the main ID
+              title: summary.title || cluster.label,
+              published_at: cluster.published_on || cluster.created_at,
+              category: category,
+              final_score: cluster.final_score,
+              image_url: cluster.image_url,
+              source_name: 'Nexus Synthesis',
+              cluster_id: cluster.id,
+              // Map new summary structure to old JSON format expected by UI components
+              summary_short: JSON.stringify({
+                tldr: summary.content_tldr,
+                full: summary.content_full, // New full content field
+                analysis: summary.content_analysis,
+                isFullSynthesis: true,
+                sourceCount: summary.source_count
+              })
+            };
+          });
 
-        validArticles.forEach(article => {
-          if (article.cluster_id) {
-            if (!seenClusters.has(article.cluster_id)) {
-              seenClusters.add(article.cluster_id);
-              uniqueItems.push(article);
-            }
-          } else {
-            uniqueItems.push(article);
-          }
-        });
+        setItems(mappedItems);
 
-        setItems(uniqueItems);
-        if (uniqueItems.length > 0 && typeof window !== 'undefined' && window.innerWidth >= 768) {
-          setSelectedId(uniqueItems[0].id);
+        // Auto-select first item on desktop
+        if (mappedItems.length > 0 && typeof window !== 'undefined' && window.innerWidth >= 768) {
+          setSelectedId(mappedItems[0].id);
         }
+      } else {
+        console.error("Fetch error:", error);
       }
       setLoading(false);
     }

@@ -15,9 +15,10 @@ export async function GET(req: Request) {
   const pubConfig = getPublicationConfig({
     freshOnly: searchParams.has('freshOnly') ? searchParams.get('freshOnly') !== 'false' : undefined,
     minSources: searchParams.has('minSources') ? parseInt(searchParams.get('minSources')!) : undefined,
+    publishThreshold: searchParams.has('minScore') ? parseFloat(searchParams.get('minScore')!) : undefined,
   });
 
-  const bypassRPC = pubConfig.freshOnly || pubConfig.minSources > 1; // Bypass RPC if filters are active
+  const bypassRPC = true; // FORCE BYPASS RPC to use new logic (Cluster-Centric)
 
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -25,145 +26,170 @@ export async function GET(req: Request) {
   );
 
   try {
-    // Try to use the SQL function first (most efficient) ONLY if no filter
-    let rpcData = null;
-    let rpcError = null;
-
-    if (!bypassRPC) {
-      const res = await supabase.rpc('get_pipeline_stats');
-      rpcData = res.data;
-      rpcError = res.error;
-    }
-
-    if (!bypassRPC && !rpcError && rpcData) {
-      // ... existing RPC logic ...
-      const { data: lastArticle } = await supabase
-        .from('articles')
-        .select('created_at')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
-
-      return NextResponse.json({
-        ...rpcData,
-        pendingScore: rpcData.pendingScoring,
-        pendingRewriting: rpcData.relevant - (rpcData.ready || 0) - (rpcData.published || 0),
-        pendingActionable: rpcData.relevant - (rpcData.ready || 0) - (rpcData.published || 0),
-        pendingSkipped: 0,
-        lastSync: lastArticle?.created_at || null
-      });
-    }
-
     // Fallback OR Filtered Mode
-    const freshnessCutoff = pubConfig.freshnessCutoff;
     const publishThreshold = pubConfig.publishThreshold;
 
-    if (bypassRPC) console.log(`[STATS] Computing stats (Threshold: ${publishThreshold}, Filters apply ONLY to Rédaction)...`);
 
-    // Pipeline stats - NO FILTER applied (show real pipeline state)
+
+    // 1. Get Clusters Statistics FIRST (Central source of truth)
+    const { data: unscoredClusters } = await supabase
+      .from('clusters')
+      .select('id')
+      .is('final_score', null);
+
+    const unscoredClusterIds = unscoredClusters?.map(c => c.id) || [];
+    const pendingScoringClustersCount = unscoredClusterIds.length;
+
+    // -----------------------------------------------------------------------
+    // Filter Actionable Clusters (Applying Publication Rules: Freshness & Consensus)
+    // -----------------------------------------------------------------------
+    const { data: candidateClusters } = await supabase
+      .from('clusters')
+      .select('id')
+      .gte('final_score', publishThreshold)
+      .eq('is_published', false);
+
+    let pendingActionableClustersCount = 0;
+    let pendingActionableArticlesCount = 0;
+
+    if (candidateClusters && candidateClusters.length > 0) {
+      const candidateIdSet = new Set(candidateClusters.map(c => c.id));
+
+      // Fetch ALL clustered articles to avoid URL overflow (HeadersOverflowError) with large ID lists
+      const { data: allClusterArticles } = await supabase
+        .from('articles')
+        .select('cluster_id, source_name, published_at')
+        .not('cluster_id', 'is', null)
+        .limit(20000);
+
+      // Filter in memory
+      const clusterArticles = allClusterArticles?.filter(a => candidateIdSet.has(a.cluster_id)) || [];
+
+      // Group by cluster
+      const articlesByCluster: Record<string, any[]> = {};
+      clusterArticles?.forEach(a => {
+        if (!articlesByCluster[a.cluster_id]) articlesByCluster[a.cluster_id] = [];
+        articlesByCluster[a.cluster_id].push(a);
+      });
+
+      // Apply Filters
+      const freshnessCutoff = pubConfig.freshnessCutoff;
+
+      pendingActionableClustersCount = candidateClusters.filter(c => {
+        const articles = articlesByCluster[c.id] || [];
+        if (articles.length === 0) return false;
+
+        // 1. Freshness Check
+        if (pubConfig.freshOnly) {
+          const hasFresh = articles.some(a => new Date(a.published_at).getTime() >= new Date(freshnessCutoff).getTime());
+          if (!hasFresh) return false;
+        }
+
+        // 2. Consensus Check
+        if (pubConfig.minSources > 1) {
+          const uniqueSources = new Set(articles.map(a => a.source_name)).size;
+          if (uniqueSources < pubConfig.minSources) return false;
+        }
+
+        return true;
+      }).length;
+
+      // Optimization: filter IDs first, then sum
+      const validatedClusterIds = new Set(candidateClusters.filter(c => {
+        const articles = articlesByCluster[c.id] || [];
+        if (articles.length === 0) return false;
+        if (pubConfig.freshOnly && !articles.some(a => new Date(a.published_at).getTime() >= new Date(freshnessCutoff).getTime())) return false;
+        if (pubConfig.minSources > 1 && new Set(articles.map(a => a.source_name)).size < pubConfig.minSources) return false;
+        return true;
+      }).map(c => c.id));
+
+      pendingActionableClustersCount = validatedClusterIds.size;
+      pendingActionableArticlesCount = clusterArticles?.filter(a => validatedClusterIds.has(a.cluster_id)).length || 0;
+    }
+
+    const { count: publishedClustersCount } = await supabase
+      .from('clusters').select('*', { count: 'exact', head: true }).eq('is_published', true);
+
+    const { count: totalClustersCount } = await supabase
+      .from('clusters').select('*', { count: 'exact', head: true });
+
+    // Pending Scoring Articles (kept as is)
+    // Use INNER JOIN to filter articles belonging to unscored clusters efficiently
+    const { count: pendingScoringArticlesCount } = await supabase
+      .from('articles')
+      .select('cluster_id, clusters!articles_cluster_id_fkey!inner(final_score)', { count: 'exact', head: true })
+      .is('clusters.final_score', null);
+
+    // Standard Article Stats
     const [
-      totalResult,
-      pendingEmbeddingResult,
-      embeddedResult,
-      pendingClusteringResult,
-      clusteredResult,
-      pendingScoringResult,
-      scoredResult,
-      relevantResult,
-      rejectedResult,
-      readyResult,
-      publishedResult,
-      clusterCountResult,
-      lastArticleResult
+      totalRes,
+      peRes, // Pending Embedding (Articles)
+      eRes,  // Embedded (Articles)
+      pcRes, // Pending Clustering (Articles)
+      cRes,  // Clustered (Articles)
+      lastArticleRes // Last Sync
     ] = await Promise.all([
       supabase.from('articles').select('*', { count: 'exact', head: true }),
       supabase.from('articles').select('*', { count: 'exact', head: true }).is('embedding', null),
       supabase.from('articles').select('*', { count: 'exact', head: true }).not('embedding', 'is', null),
       supabase.from('articles').select('*', { count: 'exact', head: true }).not('embedding', 'is', null).is('cluster_id', null),
       supabase.from('articles').select('*', { count: 'exact', head: true }).not('cluster_id', 'is', null),
-      supabase.from('articles').select('*', { count: 'exact', head: true }).not('cluster_id', 'is', null).is('relevance_score', null),
-      supabase.from('articles').select('*', { count: 'exact', head: true }).not('relevance_score', 'is', null),
-      supabase.from('articles').select('*', { count: 'exact', head: true }).gte('final_score', publishThreshold),
-      supabase.from('articles').select('*', { count: 'exact', head: true }).lt('final_score', publishThreshold).not('final_score', 'is', null),
-      supabase.from('articles').select('*', { count: 'exact', head: true }).not('summary_short', 'is', null).eq('is_published', false).gte('final_score', publishThreshold),
-      supabase.from('articles').select('*', { count: 'exact', head: true }).eq('is_published', true),
-      supabase.from('clusters').select('*', { count: 'exact', head: true }),
       supabase.from('articles').select('created_at').order('created_at', { ascending: false }).limit(1).single()
     ]);
 
-    const { data: publishedClusters } = await supabase
+    // Relevant / Rejected Clusters
+    const { count: relevantClustersCount } = await supabase
+      .from('clusters').select('*', { count: 'exact', head: true }).gte('final_score', publishThreshold);
+
+    const { count: rejectedClustersCount } = await supabase
+      .from('clusters').select('*', { count: 'exact', head: true }).lt('final_score', publishThreshold).not('final_score', 'is', null);
+
+    const { count: scoredClustersCount } = await supabase
+      .from('clusters').select('*', { count: 'exact', head: true }).not('final_score', 'is', null);
+
+
+    // Multi-Article Clusters: Count clusters with more than 1 article
+    const { data: clusterSizes } = await supabase
       .from('articles')
       .select('cluster_id')
-      .eq('is_published', true)
       .not('cluster_id', 'is', null);
 
-    const publishedClusterSet = new Set(publishedClusters?.map(c => c.cluster_id));
-
-    // Get ALL candidate articles (no freshness filter here - we check at cluster level)
-    const { data: allCandidates } = await supabase
-      .from('articles')
-      .select('cluster_id, source_name, published_at')
-      .gte('final_score', publishThreshold)
-      .is('summary_short', null);
-
-    // Group by Cluster with freshness tracking
-    const candidatesByCluster: Record<string, { sources: Set<string>, hasFreshArticle: boolean }> = {};
-    allCandidates?.forEach((c: any) => {
-      if (!c.cluster_id) return;
-      if (!candidatesByCluster[c.cluster_id]) {
-        candidatesByCluster[c.cluster_id] = { sources: new Set(), hasFreshArticle: false };
-      }
-      if (c.source_name) candidatesByCluster[c.cluster_id].sources.add(c.source_name);
-      // Check if this article is fresh
-      if (c.published_at >= freshnessCutoff) {
-        candidatesByCluster[c.cluster_id].hasFreshArticle = true;
-      }
+    const clusterMap: Record<string, number> = {};
+    clusterSizes?.forEach((a: { cluster_id: string }) => {
+      clusterMap[a.cluster_id] = (clusterMap[a.cluster_id] || 0) + 1;
     });
+    const multiArticleClusters = Object.values(clusterMap).filter(count => count > 1).length;
 
-    let pendingActionable = 0;
-    let pendingSkipped = 0;
-
-    Object.entries(candidatesByCluster).forEach(([cid, data]) => {
-      if (publishedClusterSet.has(cid)) {
-        pendingSkipped++;
-      } else {
-        // Check freshness at CLUSTER level (same logic as process/route.ts)
-        if (pubConfig.freshOnly && !data.hasFreshArticle) {
-          return; // Skip cluster without fresh articles
-        }
-        // Check min sources
-        if (data.sources.size >= pubConfig.minSources) {
-          pendingActionable++;
-        }
-      }
-    });
-
-    // Count multi-article clusters using allCandidates data
-    const clusterCounts: Record<string, number> = {};
-    allCandidates?.forEach((a: any) => {
-      if (a.cluster_id) clusterCounts[a.cluster_id] = (clusterCounts[a.cluster_id] || 0) + 1;
-    });
-    const multiArticleClusters = Object.values(clusterCounts).filter(c => c > 1).length;
-
+    // Return enriched stats
     return NextResponse.json({
-      total: totalResult.count || 0,
-      pendingScore: pendingScoringResult.count || 0,
-      pendingEmbedding: pendingEmbeddingResult.count || 0,
-      embedded: embeddedResult.count || 0,
-      pendingClustering: pendingClusteringResult.count || 0,
-      clustered: clusteredResult.count || 0,
-      pendingScoring: pendingScoringResult.count || 0,
-      pendingRewriting: pendingActionable,
-      scored: scoredResult.count || 0,
-      relevant: relevantResult.count || 0,
-      rejected: rejectedResult.count || 0,
-      pendingActionable,
-      pendingSkipped,
-      ready: readyResult.count || 0,
-      published: publishedResult.count || 0,
-      clusterCount: clusterCountResult.count || 0,
+      total: totalRes.count || 0,
+
+      pendingEmbedding: peRes.count || 0,
+      embedded: eRes.count || 0,
+
+      pendingClustering: pcRes.count || 0,
+      clustered: cRes.count || 0,
+
+      pendingScore: pendingScoringArticlesCount, // UI "Pending Score" (Articles)
+      pendingScoring: pendingScoringArticlesCount, // Alias
+      pendingScoreClusters: pendingScoringClustersCount, // NEW: Clusters count
+
+      pendingRewriting: pendingActionableArticlesCount, // UI "Actionable" (Articles)
+      pendingActionable: pendingActionableArticlesCount, // Alias
+      pendingActionableClusters: pendingActionableClustersCount, // NEW: Clusters count
+
+      scored: scoredClustersCount || 0, // Clusters
+      relevant: relevantClustersCount || 0, // Clusters
+      rejected: rejectedClustersCount || 0, // Clusters
+
+      pendingSkipped: 0,
+
+      ready: pendingActionableArticlesCount,
+      published: publishedClustersCount || 0,
+
+      clusterCount: totalClustersCount || 0,
       multiArticleClusters,
-      lastSync: lastArticleResult.data?.created_at || null
+      lastSync: lastArticleRes.data?.created_at || null
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

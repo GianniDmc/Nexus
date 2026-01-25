@@ -11,37 +11,15 @@ export async function GET(request: Request) {
         const { searchParams } = new URL(request.url);
         const page = parseInt(searchParams.get('page') || '1');
         const limit = parseInt(searchParams.get('limit') || '50');
-        const status = searchParams.get('status') || 'all'; // all, published, rejected, pending (needs review)
+        const status = searchParams.get('status') || 'all';
         const search = searchParams.get('search') || '';
 
+        // Query CLUSTERS with explicit foreign key for articles count
         let query = supabase
-            .from('articles')
-            .select('*', { count: 'estimated' });
+            .from('clusters')
+            .select('*, articles:articles!articles_cluster_id_fkey(count)', { count: 'estimated' });
 
-        // Apply Filter Status
-        if (status === 'published') {
-            // Assuming published means it has a final_score and wasn't rejected ? 
-            // Or maybe we add a 'status' column later? 
-            // For now based on current logic:
-            // Published = final_score >= 7 (approx) or manually flagged?
-            // Actually, let's use the explicit 'is_published' if we had it, but we don't.
-            // We rely on score. BUT, let's assume we want to view everything.
-
-            // Let's stick to the definition:
-            // Relevant (Published) = final_score >= 6 (or whatever threshold) AND (status is not rejected if we had that)
-            // For Admin, it's better to filter by score ranges or explicit actions.
-
-            // Let's deduce "Status" from existing fields:
-            // - Published: item.final_score >= 6
-            // - Rejected: item.final_score < 6 (or explicitly ignored?)
-            // - Pending: final_score is null
-
-            // However, we might want to manually override.
-            // Let's look at schema. We don't have a status column yet.
-            // For now, let's just default to sorting/search and simple score filtering if needed.
-        }
-
-        // Let's implement filters based on what we have
+        // Apply Status Filters
         if (status === 'relevant') {
             query = query.gte('final_score', 6);
         } else if (status === 'low_score') {
@@ -49,66 +27,68 @@ export async function GET(request: Request) {
         } else if (status === 'pending') {
             query = query.is('final_score', null);
         } else if (status === 'ready') {
-            // Articles processed (summary exists) but not published AND decent score
-            query = query.not('summary_short', 'is', null).eq('is_published', false).gte('final_score', 4);
+            // Ready = Scored, Rewritten (Summary exists) & Not Published
+            query = query.gte('final_score', 6)
+                .eq('is_published', false)
+                .not('summary_short', 'is', null);
         } else if (status === 'published') {
             query = query.eq('is_published', true);
         }
 
         if (search) {
-            query = query.ilike('title', `%${search}%`);
+            query = query.ilike('label', `%${search}%`);
         }
 
-        const sort = searchParams.get('sort') || 'published_at';
+        const sort = searchParams.get('sort') || 'created_at';
         const order = searchParams.get('order') || 'desc';
 
-        // ... filters ...
+        // Fix sort field mapping
+        let sortField = sort;
+        if (sort === 'published_at') sortField = 'created_at';
 
-        if (search) {
-            query = query.ilike('title', `%${search}%`);
+        const isManualSort = sortField === 'cluster_size';
+
+        // Apply Native Sort if not manual
+        if (!isManualSort) {
+            query = query.order(sortField, { ascending: order === 'asc' });
+
+            const from = (page - 1) * limit;
+            const to = from + limit - 1;
+            query = query.range(from, to);
         }
-
-        // Dynamic Sort
-        query = query.order(sort, { ascending: order === 'asc' });
-
-        // Pagination
-        const from = (page - 1) * limit;
-        const to = from + limit - 1;
-        query = query.range(from, to);
 
         const { data, error, count } = await query;
 
         if (error) throw error;
 
-        // Enrich with cluster_size (count articles per cluster)
-        const clusterIds = [...new Set(data?.map(a => a.cluster_id).filter(Boolean) || [])];
-        const clusterSizes: Record<string, number> = {};
+        // Transform
+        let clusters = data?.map((c: any) => ({
+            ...c,
+            title: c.label,
+            cluster_size: c.articles?.[0]?.count || 0
+        })) || [];
 
-        if (clusterIds.length > 0) {
-            const { data: clusterArticles } = await supabase
-                .from('articles')
-                .select('cluster_id')
-                .in('cluster_id', clusterIds);
-
-            clusterArticles?.forEach(a => {
-                if (a.cluster_id) clusterSizes[a.cluster_id] = (clusterSizes[a.cluster_id] || 0) + 1;
+        // Manual Sort & Pagination (if cluster_size)
+        if (isManualSort) {
+            clusters.sort((a, b) => {
+                return order === 'asc'
+                    ? a.cluster_size - b.cluster_size
+                    : b.cluster_size - a.cluster_size;
             });
+            // Manual Pagination
+            const from = (page - 1) * limit;
+            clusters = clusters.slice(from, from + limit);
         }
 
-        const enrichedArticles = data?.map(article => ({
-            ...article,
-            cluster_size: article.cluster_id ? (clusterSizes[article.cluster_id] || 1) : 0
-        }));
-
         return NextResponse.json({
-            articles: enrichedArticles,
+            clusters,
             total: count,
             page,
             totalPages: count ? Math.ceil(count / limit) : 0
         });
 
-    } catch (error) {
-        return NextResponse.json({ error: 'Failed to fetch articles' }, { status: 500 });
+    } catch (error: any) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
     }
 }
 
@@ -116,8 +96,8 @@ export async function PATCH(request: Request) {
     try {
         const { id, ids, updates } = await request.json();
 
-        // Support both single ID and multiple IDs
-        const startQuery = supabase.from('articles').update(updates);
+        // Target CLUSTERS
+        const startQuery = supabase.from('clusters').update(updates);
 
         let query;
         if (ids && Array.isArray(ids) && ids.length > 0) {
@@ -132,9 +112,9 @@ export async function PATCH(request: Request) {
 
         if (error) throw error;
 
-        return NextResponse.json({ success: true, articles: data });
+        return NextResponse.json({ success: true, clusters: data });
     } catch (error) {
-        return NextResponse.json({ error: 'Failed to update article(s)' }, { status: 500 });
+        return NextResponse.json({ error: 'Failed to update cluster(s)' }, { status: 500 });
     }
 }
 
@@ -146,7 +126,7 @@ export async function DELETE(request: Request) {
         if (!id) throw new Error('ID required');
 
         const { error } = await supabase
-            .from('articles')
+            .from('clusters') // Delete Cluster
             .delete()
             .eq('id', id);
 
@@ -154,6 +134,6 @@ export async function DELETE(request: Request) {
 
         return NextResponse.json({ success: true });
     } catch (error) {
-        return NextResponse.json({ error: 'Failed to delete article' }, { status: 500 });
+        return NextResponse.json({ error: 'Failed to delete cluster' }, { status: 500 });
     }
 }
