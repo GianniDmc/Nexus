@@ -499,12 +499,12 @@ export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
                                     <div className="text-xs text-muted font-normal">
                                         <div className="flex justify-between mb-1">
                                             <span>{serverRunning.progress.label}</span>
-                                            <span>{Math.round((serverRunning.progress.current / serverRunning.progress.total) * 100)}%</span>
+                                            <span>{serverRunning.progress.total > 0 ? Math.round((serverRunning.progress.current / serverRunning.progress.total) * 100) : 0}%</span>
                                         </div>
                                         <div className="w-full bg-black/20 h-1.5 rounded-full overflow-hidden">
                                             <div
                                                 className="bg-accent h-full transition-all duration-500"
-                                                style={{ width: `${(serverRunning.progress.current / serverRunning.progress.total) * 100}%` }}
+                                                style={{ width: `${serverRunning.progress.total > 0 ? (serverRunning.progress.current / serverRunning.progress.total) * 100 : 0}%` }}
                                             />
                                         </div>
                                     </div>
@@ -517,7 +517,7 @@ export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
                                         <div className="w-full bg-secondary h-2 rounded-full overflow-hidden">
                                             <div
                                                 className="bg-accent h-full transition-all duration-300"
-                                                style={{ width: `${(serverRunning.progress.current / serverRunning.progress.total) * 100}%` }}
+                                                style={{ width: `${serverRunning.progress.total > 0 ? (serverRunning.progress.current / serverRunning.progress.total) * 100 : 0}%` }}
                                             />
                                         </div>
                                         <p className="mt-1 text-xs text-muted">{serverRunning.progress.current} / {serverRunning.progress.total}</p>
