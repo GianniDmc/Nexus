@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { RefreshCw, Database, CheckCircle, AlertCircle, Layers, Filter, ThumbsUp, ThumbsDown, PenTool, Zap, LayoutDashboard, FileText, GitBranch, Key } from 'lucide-react';
+import { RefreshCw, Database, CheckCircle, AlertCircle, Layers, Filter, ThumbsUp, ThumbsDown, PenTool, Zap, LayoutDashboard, FileText, GitBranch, Key, BarChart3 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { AutoProcessor } from '@/components/admin/AutoProcessor';
@@ -9,6 +9,7 @@ import { ArticleManager } from '@/components/admin/ArticleManager';
 import { ClusterManager } from '@/components/admin/ClusterManager';
 import { ManualSteps } from '@/components/admin/ManualSteps';
 import { AISettings } from '@/components/admin/AISettings';
+import { AnalyticsDashboard } from '@/components/admin/AnalyticsDashboard';
 
 interface Stats {
   total: number;
@@ -34,7 +35,7 @@ interface Stats {
 export default function AdminPage() {
   const [loading, setLoading] = useState(false);
   const [stats, setStats] = useState<Stats | null>(null);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'editorial' | 'clusters' | 'ia'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'analytics' | 'editorial' | 'clusters' | 'ia'>('dashboard');
 
   const fetchStats = async () => {
     try {
@@ -80,6 +81,13 @@ export default function AdminPage() {
                 }`}
             >
               <GitBranch className="w-4 h-4" /> Clusters
+            </button>
+            <button
+              onClick={() => setActiveTab('analytics')}
+              className={`pb-3 text-sm font-bold uppercase tracking-wider flex items-center gap-2 border-b-2 transition-colors ${activeTab === 'analytics' ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-primary'
+                }`}
+            >
+              <BarChart3 className="w-4 h-4" /> Analytics
             </button>
             <button
               onClick={() => setActiveTab('ia')}
@@ -222,6 +230,10 @@ export default function AdminPage() {
               </div>
             </div>
           </>
+        ) : activeTab === 'analytics' ? (
+          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <AnalyticsDashboard />
+          </div>
         ) : activeTab === 'editorial' ? (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
             <ArticleManager />
