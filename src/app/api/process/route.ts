@@ -144,7 +144,7 @@ export async function POST(req: NextRequest) {
           .select('id, title, embedding, published_at')
           .not('embedding', 'is', null)
           .is('cluster_id', null)
-          .limit(10);
+          .limit(processingLimit);
 
         if (needsClustering && needsClustering.length > 0) {
           for (const article of needsClustering) {
