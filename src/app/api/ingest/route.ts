@@ -16,7 +16,7 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 // Configuration de la parallélisation
 const BATCH_SIZE = 10; // Increased from 5
 const BATCH_DELAY_MS = 200; // Reduced from 300
-const SOURCE_CONCURRENCY = 3; // New: Process 3 sources in parallel
+const SOURCE_CONCURRENCY = 10; // New: Process 10 sources in parallel
 
 // Fonction pour traiter un batch d'articles en parallèle
 async function processBatch(

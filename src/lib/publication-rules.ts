@@ -11,7 +11,7 @@ export const PUBLICATION_RULES = {
      * Minimum final_score required for an article to be published
      * Scale: 0-10, where 10 is most relevant
      */
-    PUBLISH_THRESHOLD: 6.0,
+    PUBLISH_THRESHOLD: 8.0,
 
     /**
      * Minimum number of unique sources required in a cluster
@@ -36,6 +36,13 @@ export const PUBLICATION_RULES = {
      * Default: 720 hours (30 days)
      */
     INGESTION_MAX_AGE_HOURS: 720,
+
+    /**
+     * Minimum age (in hours) of the FIRST article in a cluster 
+     * before the cluster is eligible for automated rewriting/publishing.
+     * Prevents premature publishing of developing stories.
+     */
+    CLUSTER_MATURITY_HOURS: 6,
 } as const;
 
 // Helper to get freshness cutoff date (for Rewriting)
@@ -59,6 +66,7 @@ export interface PublicationOverrides {
     freshOnly?: boolean;
     minSources?: number;
     publishThreshold?: number;
+    ignoreMaturity?: boolean;
 }
 
 // Merge defaults with overrides
@@ -68,5 +76,7 @@ export function getPublicationConfig(overrides?: PublicationOverrides) {
         minSources: overrides?.minSources ?? PUBLICATION_RULES.MIN_SOURCES,
         freshOnly: overrides?.freshOnly ?? PUBLICATION_RULES.FRESH_ONLY_DEFAULT,
         freshnessCutoff: getFreshnessCutoff(),
+        ignoreMaturity: overrides?.ignoreMaturity ?? false,
+        maturityHours: PUBLICATION_RULES.CLUSTER_MATURITY_HOURS,
     };
 }

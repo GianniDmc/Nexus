@@ -65,11 +65,30 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  const hasPaidKey = !!(aiConfig?.openaiKey || aiConfig?.anthropicKey || aiConfig?.geminiKey);
-  const publishThreshold = pubConfig.publishThreshold;  // From centralized config
-  // Speed Boost: 50 items/loop if paid, 10 if free. Batch 25 vs 5. Delay 100ms vs 2s.
+  // Detect keys from request config OR environment variables (Vital for Cron)
+  // User strategy: PAID_ prefix implies "Fast/Paid" mode. Standard keys might be Free/Slow (esp. Google).
+
+  const envPaidGoogle = process.env.PAID_GOOGLE_API_KEY;
+  const envPaidOpenAI = process.env.PAID_OPENAI_API_KEY;
+  const envPaidAnthropic = process.env.PAID_ANTHROPIC_API_KEY;
+
+  // Construct effective config merging Body Config (priority) > Paid Env Vars
+  const effectiveConfig: AIOverrideConfig = {
+    ...body.config,
+    openaiKey: body.config?.openaiKey || envPaidOpenAI,
+    anthropicKey: body.config?.anthropicKey || envPaidAnthropic,
+    geminiKey: body.config?.geminiKey || envPaidGoogle,
+    preferredProvider: body.config?.preferredProvider || ( ? 'openai' : envPaidAnthropic ? 'anthropic' : 'auto')
+  };
+
+  // Fast Mode is enabled ONLY if we have a PAID key active in the config
+  const hasPaidKey = !!(effectiveConfig.openaiKey || effectiveConfig.anthropicKey || effectiveConfig.geminiKey);
+
+  const publishThreshold = pubConfig.publishThreshold;
+  // Speed Boost: 50 items/loop if paid/env present, 10 if free.
   const processingLimit = hasPaidKey ? 50 : 10;
   const llmDelayMs = hasPaidKey ? 100 : 2500;
+
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
   const todayDate = new Date().toISOString().slice(0, 10);
 
@@ -101,7 +120,7 @@ export async function POST(req: NextRequest) {
             const contentSnippet = article.content ? article.content.slice(0, 1000) : '';
             const textToEmbed = `${article.title}\n\n${contentSnippet}`;
 
-            const embedding = await generateEmbedding(textToEmbed);
+            const embedding = await generateEmbedding(textToEmbed, effectiveConfig.geminiKey);
 
             if (embedding) {
               const { error: updateError } = await supabase.from('articles').update({ embedding }).eq('id', article.id);
@@ -198,7 +217,7 @@ export async function POST(req: NextRequest) {
           }
 
           // New Cluster-Centric Scoring
-          const evaluation = await scoreCluster(articles, aiConfig);
+          const evaluation = await scoreCluster(articles, effectiveConfig);
 
           await sleep(llmDelayMs);
 
@@ -249,15 +268,29 @@ export async function POST(req: NextRequest) {
 
 
 
-          // Hydrate with articles to check Freshness and Source Count
+          // Check freshness and maturity
+          // Hydrate with articles to check Freshness, Source Count, and Age
           const { data: clusterArticles } = await supabase
             .from('articles')
             .select('source_name, published_at')
-            .eq('cluster_id', cluster.id);
+            .eq('cluster_id', cluster.id)
+            .order('published_at', { ascending: true }); // Oldest first for age check
 
           if (!clusterArticles || clusterArticles.length === 0) {
-
             continue;
+          }
+
+          // Maturity Check (Anti-Premature Publishing)
+          // Rule: Skip if cluster is too young (unless ignored, e.g. manual admin force)
+          if (!pubConfig.ignoreMaturity && pubConfig.maturityHours > 0) {
+            const oldestArticleDate = new Date(clusterArticles[0].published_at).getTime();
+            const maturityMillis = pubConfig.maturityHours * 60 * 60 * 1000;
+            const clusterAge = Date.now() - oldestArticleDate;
+
+            if (clusterAge < maturityMillis) {
+              // Too young - skip for now, let it mature
+              continue;
+            }
           }
 
           // Check freshness: cluster must have at least one fresh article
@@ -302,7 +335,7 @@ export async function POST(req: NextRequest) {
         if (sources && sources.length > 0) {
           let rewritten = null;
           try {
-            rewritten = await rewriteArticle(sources, aiConfig);
+            rewritten = await rewriteArticle(sources, effectiveConfig);
           } catch (e) {
             console.error(`[REWRITE ERROR] Exception during rewriteArticle:`, e);
           }
@@ -330,7 +363,7 @@ export async function POST(req: NextRequest) {
                 content_full: rewritten.content,
                 image_url: topArticle.image_url,
                 source_count: sources.length,
-                model_name: aiConfig?.preferredProvider || 'auto'
+                model_name: effectiveConfig?.preferredProvider || 'auto'
               }, { onConflict: 'cluster_id' });
 
               if (insertError) {

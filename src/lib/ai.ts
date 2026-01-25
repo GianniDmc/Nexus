@@ -285,9 +285,16 @@ FORMAT JSON:
   }
 }
 
-export async function generateEmbedding(text: string) {
-  if (!getGenAI()) return null;
-  const model = getGenAI()!.getGenerativeModel({ model: "text-embedding-004" });
+export async function generateEmbedding(text: string, apiKey?: string) {
+  let model;
+  if (apiKey) {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    model = genAI.getGenerativeModel({ model: "text-embedding-004" });
+  } else {
+    if (!getGenAI()) return null;
+    model = getGenAI()!.getGenerativeModel({ model: "text-embedding-004" });
+  }
+
   const result = await model.embedContent(text);
   return result.embedding.values;
 }
