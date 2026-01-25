@@ -158,10 +158,10 @@ export async function GET(req: Request) {
       const chunk = sources.slice(i, i + SOURCE_CONCURRENCY);
       const chunkPromises = chunk.map(source => processSource(source, supabase));
 
-      const chunkResults = await Promise.all(chunkPromises);
+      const chunkResults = (await Promise.all(chunkPromises)) as any[];
 
       for (const res of chunkResults) {
-        if (res.success) {
+        if (res.success && res.results) {
           allResults.push(...res.results);
         } else {
           allErrors.push({ source: res.sourceName, error: res.error });
