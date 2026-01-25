@@ -1,0 +1,44 @@
+-- Improve Clustering Time Logic
+-- 1. We drop the old function to avoid signature conflicts if we change argument types/order too much.
+DROP FUNCTION IF EXISTS find_similar_articles(vector, float, int, int);
+DROP FUNCTION IF EXISTS find_similar_articles(vector, float, int, int, uuid);
+
+-- 2. New version with Anchor Date + Window
+CREATE OR REPLACE FUNCTION find_similar_articles(
+    query_embedding vector(1536),
+    match_threshold float,
+    match_count int,
+    anchor_date timestamptz,   -- The date of the article we are clustering
+    window_days int,           -- Look +/- X days around this date
+    exclude_id uuid default null
+)
+RETURNS TABLE (
+    id uuid,
+    title text,
+    similarity float,
+    cluster_id uuid
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        articles.id,
+        articles.title,
+        1 - (articles.embedding <=> query_embedding) AS similarity,
+        articles.cluster_id
+    FROM articles
+    WHERE 
+        -- Time Window: +/- window_days around the anchor date
+        articles.published_at >= (anchor_date - (window_days || ' days')::interval)
+        AND articles.published_at <= (anchor_date + (window_days || ' days')::interval)
+        
+        -- Vector Similarity
+        AND 1 - (articles.embedding <=> query_embedding) > match_threshold
+        
+        -- Self Exclusion
+        AND (exclude_id IS NULL OR articles.id != exclude_id)
+    ORDER BY articles.embedding <=> query_embedding
+    LIMIT match_count;
+END;
+$$;

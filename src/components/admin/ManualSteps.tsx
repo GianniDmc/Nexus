@@ -15,13 +15,14 @@ interface StepConfig {
     description: string;
     color: string;
     statKey: string;
+    clusterStatKey?: string;
 }
 
 const STEPS: StepConfig[] = [
     { id: 'embedding', label: 'Embeddings', icon: <Database className="w-4 h-4" />, description: 'Vectorisation', color: 'text-blue-500', statKey: 'pendingEmbedding' },
     { id: 'clustering', label: 'Clustering', icon: <GitBranch className="w-4 h-4" />, description: 'Regroupement', color: 'text-purple-500', statKey: 'pendingClustering' },
-    { id: 'scoring', label: 'Scoring', icon: <Star className="w-4 h-4" />, description: 'Évaluation', color: 'text-yellow-500', statKey: 'pendingScoring' },
-    { id: 'rewriting', label: 'Rédaction', icon: <PenTool className="w-4 h-4" />, description: 'Publication', color: 'text-green-500', statKey: 'pendingRewriting' },
+    { id: 'scoring', label: 'Scoring', icon: <Star className="w-4 h-4" />, description: 'Évaluation', color: 'text-yellow-500', statKey: 'pendingScoring', clusterStatKey: 'pendingScoreClusters' },
+    { id: 'rewriting', label: 'Rédaction', icon: <PenTool className="w-4 h-4" />, description: 'Publication', color: 'text-green-500', statKey: 'pendingRewriting', clusterStatKey: 'pendingActionableClusters' },
 ];
 
 interface Source {
@@ -38,14 +39,17 @@ interface PipelineStats {
     pendingEmbedding?: number;
     pendingClustering?: number;
     pendingScoring?: number;
+    pendingScoreClusters?: number;
     pendingRewriting?: number;
+    pendingActionableClusters?: number;
 }
 
 export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
     const [runningStep, setRunningStep] = useState<Step | null>(null);
     const [isLooping, setIsLooping] = useState(false);
-    const [freshOnly, setFreshOnly] = useState<boolean>(PUBLICATION_RULES.FRESH_ONLY_DEFAULT); // Aligned with config
-    const [minSources, setMinSources] = useState<number>(PUBLICATION_RULES.MIN_SOURCES); // Aligned with config
+    const [freshOnly, setFreshOnly] = useState<boolean>(PUBLICATION_RULES.FRESH_ONLY_DEFAULT);
+    const [minSources, setMinSources] = useState<number>(PUBLICATION_RULES.MIN_SOURCES);
+    const [minScore, setMinScore] = useState<number>(PUBLICATION_RULES.PUBLISH_THRESHOLD); // Added minScore
     const [progress, setProgress] = useState<{ step: Step; total: number; current: number } | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [stats, setStats] = useState<PipelineStats>({});
@@ -59,6 +63,7 @@ export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
         progress?: { current: number; total: number; label?: string };
     }>({ isRunning: false, step: null });
     const abortControllerRef = useRef<AbortController | null>(null);
+    const statsAbortRef = useRef<AbortController | null>(null);
 
     const sleep = (ms: number) => new Promise<void>((resolve) => {
         const timeout = setTimeout(resolve, ms);
@@ -69,14 +74,20 @@ export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
     });
 
     const fetchStats = async () => {
+        // Abort previous request to prevent race conditions
+        if (statsAbortRef.current) statsAbortRef.current.abort();
+        statsAbortRef.current = new AbortController();
+
         try {
-            const res = await fetch(`/api/admin/stats?freshOnly=${freshOnly}&minSources=${minSources}`);
+            const res = await fetch(`/api/admin/stats?freshOnly=${freshOnly}&minSources=${minSources}&minScore=${minScore}`, {
+                signal: statsAbortRef.current.signal
+            });
             const data = await res.json();
             setStats(data);
-        } catch (e) { console.error('Stats fetch failed', e); }
+        } catch (e: any) {
+            if (e.name !== 'AbortError') console.error('Stats fetch failed', e);
+        }
     };
-
-
 
     const fetchSources = async () => {
         try {
@@ -95,15 +106,18 @@ export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
             setServerRunning({
                 isRunning: data.isRunning,
                 step: data.step,
-                progress: data.progress // Sync progress from server
+                progress: data.progress
             });
         } catch (e) { console.error('Server state fetch failed', e); }
     };
 
-    // Refresh stats when filters change
+    // Refresh stats when filters change (Debounced)
     useEffect(() => {
-        fetchStats();
-    }, [freshOnly, minSources]);
+        const timer = setTimeout(() => {
+            fetchStats();
+        }, 500);
+        return () => clearTimeout(timer);
+    }, [freshOnly, minSources, minScore]);
 
     // Polling Interval (Depends on filters)
     useEffect(() => {
@@ -115,7 +129,7 @@ export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
             fetchServerState();
         }, 5000);
         return () => clearInterval(interval);
-    }, [freshOnly, minSources]);
+    }, [freshOnly, minSources, minScore]);
 
     const getStepKey = (step: Step) => {
         switch (step) {
@@ -145,8 +159,9 @@ export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     step, config: getAIConfig(),
-                    freshOnly: freshOnly, // Pass option to backend
-                    minSources: minSources
+                    freshOnly: freshOnly,
+                    minSources: minSources,
+                    publishThreshold: minScore // Pass minScore
                 }),
             });
             const data = await res.json();
@@ -175,7 +190,13 @@ export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
                 const res = await fetch(`/api/process?step=${step}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ step, config: getAIConfig(), freshOnly: freshOnly, minSources: minSources }),
+                    body: JSON.stringify({
+                        step,
+                        config: getAIConfig(),
+                        freshOnly: freshOnly,
+                        minSources: minSources,
+                        publishThreshold: minScore
+                    }),
                     signal: abortControllerRef.current?.signal
                 });
                 const data = await res.json();
@@ -189,7 +210,6 @@ export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
                     throw new Error(data.error || 'Erreur');
                 }
 
-                // Check if server signaled to stop
                 if (data.processed?.stopped) {
                     break;
                 }
@@ -235,7 +255,6 @@ export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
 
     const stopLoop = async (force: boolean = false) => {
         abortControllerRef.current?.abort();
-        // Also notify server to stop (or reset if forced)
         try {
             await fetch('/api/admin/processing-state', {
                 method: 'POST',
@@ -244,7 +263,6 @@ export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
             });
 
             if (force) {
-                // Force sync after small delay to let DB update
                 setTimeout(fetchServerState, 500);
                 setTimeout(fetchServerState, 2000);
             } else {
@@ -325,39 +343,83 @@ export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
                     <RefreshCw className="w-4 h-4 text-accent" /> Traitement
                 </h3>
 
-                {/* Global Options */}
-                <div className="mb-4 flex flex-wrap gap-4 items-center">
-                    <label className="flex items-center gap-2 text-xs text-muted-foreground bg-secondary/30 px-3 py-2 rounded-lg border border-border/50 cursor-pointer hover:bg-secondary/50 transition-colors w-fit">
-                        <input
-                            type="checkbox"
-                            checked={freshOnly}
-                            onChange={(e) => setFreshOnly(e.target.checked)}
-                            className="rounded border-gray-400 text-accent focus:ring-accent w-4 h-4"
-                        />
-                        <span>Uniquement articles &lt; 48h (Économie IA)</span>
-                    </label>
-
-                    <div className="flex items-center gap-3 text-xs text-muted-foreground bg-secondary/30 px-4 py-2 rounded-lg border border-border/50">
-                        <GitBranch className="w-3 h-3 text-purple-500" />
-                        <span className="font-semibold">Consensus :</span>
-                        <div className="flex items-center gap-2">
+                {/* Publication Requirements Options */}
+                <div className="mb-6 mx-1 mt-2 p-4 border-2 border-dashed border-green-500/20 rounded-xl bg-green-500/5 relative">
+                    <span className="absolute -top-3 left-4 bg-background px-2 text-[10px] font-bold uppercase tracking-widest text-green-600 z-10 flex items-center gap-1">
+                        <PenTool className="w-3 h-3" /> Critères de Rédaction
+                    </span>
+                    <div className="flex flex-wrap gap-6 items-center">
+                        <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer hover:text-primary transition-colors select-none">
+                            <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${freshOnly ? 'bg-green-500 border-green-500 text-white' : 'border-muted bg-background'}`}>
+                                {freshOnly && <CheckCircle className="w-3 h-3" />}
+                            </div>
                             <input
-                                type="range"
-                                min="1"
-                                max="5"
-                                step="1"
-                                value={minSources}
-                                onChange={(e) => setMinSources(parseInt(e.target.value))}
-                                className="w-24 h-1.5 bg-secondary rounded-lg appearance-none cursor-pointer accent-purple-500"
+                                type="checkbox"
+                                checked={freshOnly}
+                                onChange={(e) => setFreshOnly(e.target.checked)}
+                                className="hidden"
                             />
-                            <span className="font-mono font-bold text-foreground w-3">{minSources}</span>
-                            <span className="text-[10px] text-muted">{minSources > 1 ? 'sources min.' : 'source min.'}</span>
+                            <div className="flex flex-col">
+                                <span className="font-medium">Fraîcheur (48h)</span>
+                                <span className="text-[10px] text-muted-foreground/70">Uniquement articles récents</span>
+                            </div>
+                        </label>
+
+                        <div className="w-px h-8 bg-green-500/20 hidden sm:block" />
+
+                        <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                            <div className="flex flex-col">
+                                <span className="font-medium flex items-center gap-1"><GitBranch className="w-3 h-3" /> Consensus</span>
+                                <span className="text-[10px] text-muted-foreground/70">Sources min. pour valider</span>
+                            </div>
+                            <div className="flex items-center gap-3 bg-background rounded-full px-3 py-1 border border-border shadow-sm">
+                                <button
+                                    onClick={() => minSources > 1 && setMinSources(m => m - 1)}
+                                    className="text-muted hover:text-green-600 font-bold px-1 transition-colors"
+                                >-</button>
+                                <span className="font-mono font-bold text-green-600 w-4 text-center">{minSources}</span>
+                                <button
+                                    onClick={() => minSources < 5 && setMinSources(m => m + 1)}
+                                    className="text-muted hover:text-green-600 font-bold px-1 transition-colors"
+                                >+</button>
+                            </div>
+                        </div>
+
+                        <div className="w-px h-8 bg-green-500/20 hidden sm:block" />
+
+                        <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                            <div className="flex flex-col">
+                                <span className="font-medium flex items-center gap-1"><Star className="w-3 h-3" /> Score Min.</span>
+                                <span className="text-[10px] text-muted-foreground/70">Seuil de qualité (0-10)</span>
+                            </div>
+                            <div className="flex items-center gap-2 bg-background rounded-full px-3 py-1 border border-border shadow-sm">
+                                <input
+                                    type="range"
+                                    min="0"
+                                    max="10"
+                                    step="0.5"
+                                    value={minScore}
+                                    onChange={(e) => setMinScore(parseFloat(e.target.value))}
+                                    className="w-20 h-1.5 bg-secondary rounded-lg appearance-none cursor-pointer accent-green-600"
+                                />
+                                <span className="font-mono font-bold text-green-600 w-8 text-center">{minScore}</span>
+                            </div>
                         </div>
                     </div>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     {STEPS.map((step) => {
-                        const remaining = (stats as any)[step.statKey] || 0;
+                        const isClusterCentric = !!step.clusterStatKey;
+                        const articleCount = (stats as any)[step.statKey] || 0;
+                        const clusterCount = isClusterCentric ? ((stats as any)[step.clusterStatKey] || 0) : 0;
+
+                        const mainCount = isClusterCentric ? clusterCount : articleCount;
+                        const mainLabel = isClusterCentric ? 'sujets' : 'articles';
+                        const subInfo = isClusterCentric ? `${articleCount} articles` : null;
+
+                        // Use mainCount (or articleCount if non-cluster) to determine activity
+                        const hasWork = articleCount > 0;
+
                         return (
                             <div key={step.id} className="relative">
                                 <button
@@ -369,9 +431,21 @@ export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
                                         {runningStep === step.id ? <RefreshCw className="w-4 h-4 animate-spin" /> : step.icon}
                                     </div>
                                     <span className="text-xs font-bold">{step.label}</span>
-                                    <span className={`text-lg font-mono ${remaining > 0 ? step.color : 'text-muted'}`}>{remaining}</span>
+                                    <div className="flex flex-col items-center mt-1">
+                                        <span className={`text-xl font-mono font-bold ${mainCount > 0 ? step.color : 'text-muted'}`}>
+                                            {mainCount}
+                                        </span>
+                                        <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">
+                                            {mainLabel}
+                                        </span>
+                                        {subInfo && (
+                                            <span className="text-[9px] text-muted-foreground/60 font-medium mt-0.5">
+                                                ({subInfo})
+                                            </span>
+                                        )}
+                                    </div>
                                 </button>
-                                {remaining > 0 && (
+                                {mainCount > 0 && (
                                     <button
                                         onClick={(e) => { e.stopPropagation(); runAll(step.id); }}
                                         disabled={runningStep !== null || serverRunning.isRunning}
@@ -381,7 +455,7 @@ export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
                                         <Infinity className="w-3 h-3" />
                                     </button>
                                 )}
-                                {remaining === 0 && (
+                                {mainCount === 0 && articleCount === 0 && (
                                     <span className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-green-500 text-white flex items-center justify-center">
                                         <CheckCircle className="w-3 h-3" />
                                     </span>

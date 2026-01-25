@@ -38,6 +38,10 @@ Ce document recense les améliorations techniques et fonctionnelles prévues pou
 1. **LLM Verification (Le Juge)** : Une fois qu'un cluster potentiel est trouvé par vecteur (Seuil 0.75), demander à un modèle "Fast" de confirmer : *"Ces deux articles parlent-ils exactement du même événement ? OUI/NON"*. C'est l'approche la plus fiable.
 2. **Titrage Dynamique** : Ne plus utiliser le titre du premier article, mais générer un titre synthétique pour le cluster.
 3. **Clustering Centroïde** : (Concept conservé) pour stabiliser le vecteur moyen du cluster.
+4. **Prompt Engineering Strict** :
+   - Distinction explicite entre **Thème** (interdit) et **Événement** (requis).
+   - Utilisation de contraintes négatives : *"NE GROUPE PAS par thème général (ex: IA)"*.
+   - Définition de "Doublons Médiatiques" pour forcer le regroupement sur le fait précis uniquement.
 
 **Impact** : Élimination quasi-totale des clusters "Fourre-Tout".
 
