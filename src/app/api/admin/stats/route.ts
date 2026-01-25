@@ -80,12 +80,12 @@ export async function GET(req: Request) {
       relevantClustersRes,
       rejectedClustersRes,
       scoredClustersCountRes
-    ] = await Promise.all(independentQueries);
+    ] = (await Promise.all(independentQueries)) as any[];
 
     // 3. Process candidate clusters and articles for publication stats
-    const candidateClusters = candidateClustersRes.data || [];
-    const allClusterArticles = allClusterArticlesRes.data || [];
-    const candidateIdSet = new Set(candidateClusters.map(c => c.id));
+    const candidateClusters = (candidateClustersRes.data as any[]) || [];
+    const allClusterArticles = (allClusterArticlesRes.data as any[]) || [];
+    const candidateIdSet = new Set(candidateClusters.map((c: any) => c.id));
 
     // Group articles by cluster and calculate multi-article clusters in one pass
     const articlesByCluster: Record<string, any[]> = {};
@@ -135,7 +135,7 @@ export async function GET(req: Request) {
       clustered: cRes.count || 0,
       pendingScore: pendingScoringArticlesCountRes.count || 0,
       pendingScoring: pendingScoringArticlesCountRes.count || 0,
-      pendingScoreClusters: unscoredClustersRes.data?.length || 0,
+      pendingScoreClusters: (unscoredClustersRes.data as any[])?.length || 0,
       pendingRewriting: pendingActionableArticlesCount,
       pendingActionable: pendingActionableArticlesCount,
       pendingActionableClusters: pendingActionableClustersCount,

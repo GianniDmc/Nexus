@@ -411,7 +411,7 @@ export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
                     {STEPS.map((step) => {
                         const isClusterCentric = !!step.clusterStatKey;
                         const articleCount = (stats as any)[step.statKey] || 0;
-                        const clusterCount = isClusterCentric ? ((stats as any)[step.clusterStatKey] || 0) : 0;
+                        const clusterCount = (isClusterCentric && step.clusterStatKey) ? ((stats as any)[step.clusterStatKey] || 0) : 0;
 
                         const mainCount = isClusterCentric ? clusterCount : articleCount;
                         const mainLabel = isClusterCentric ? 'sujets' : 'articles';
