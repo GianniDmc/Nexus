@@ -263,61 +263,60 @@ export async function POST(req: NextRequest) {
         const filteredClusterIds: string[] = [];
         const freshnessCutoff = pubConfig.freshnessCutoff;
 
-        if (clustersToProcess) {
-          for (const cluster of clustersToProcess) {
-            if (publishedClusterIds.has(cluster.id)) continue;
+        if (clustersToProcess && clustersToProcess.length > 0) {
+          // Optimization: Batch fetch articles for ALL candidates to avoid N+1 DB calls
+          // This was likely causing the 50s delay (50 queries * ~1s latency)
+          const candidateIds = clustersToProcess
+            .filter(c => !publishedClusterIds.has(c.id))
+            .map(c => c.id);
 
-
-
-            // Check freshness and maturity
-            // Hydrate with articles to check Freshness, Source Count, and Age
-            const { data: clusterArticles } = await supabase
+          if (candidateIds.length > 0) {
+            const { data: allArticles } = await supabase
               .from('articles')
-              .select('source_name, published_at')
-              .eq('cluster_id', cluster.id)
-              .order('published_at', { ascending: true }); // Oldest first for age check
+              .select('cluster_id, source_name, published_at')
+              .in('cluster_id', candidateIds)
+              .order('published_at', { ascending: true }); // Important for age check
 
-            if (!clusterArticles || clusterArticles.length === 0) {
-              continue;
-            }
+            // Group articles by cluster_id
+            const articlesByCluster = (allArticles || []).reduce((acc, art) => {
+              if (!acc[art.cluster_id]) acc[art.cluster_id] = [];
+              acc[art.cluster_id].push(art);
+              return acc;
+            }, {} as Record<string, any[]>);
 
-            // Maturity Check (Anti-Premature Publishing)
-            // Rule: Skip if cluster is too young (unless ignored, e.g. manual admin force)
-            if (!pubConfig.ignoreMaturity && pubConfig.maturityHours > 0) {
-              const oldestArticleDate = new Date(clusterArticles[0].published_at).getTime();
-              const maturityMillis = pubConfig.maturityHours * 60 * 60 * 1000;
-              const clusterAge = Date.now() - oldestArticleDate;
+            // In-memory filtering
+            for (const cluster of clustersToProcess) {
+              if (filteredClusterIds.length >= processingLimit) break;
+              if (!candidateIds.includes(cluster.id)) continue;
 
-              if (clusterAge < maturityMillis) {
-                // Too young - skip for now, let it mature
-                continue;
+              const clusterArticles = articlesByCluster[cluster.id] || [];
+
+              if (clusterArticles.length === 0) continue;
+
+              // 1. Maturity Check
+              if (!pubConfig.ignoreMaturity && pubConfig.maturityHours > 0) {
+                const oldestArticleDate = new Date(clusterArticles[0].published_at).getTime();
+                const maturityMillis = pubConfig.maturityHours * 60 * 60 * 1000;
+                const clusterAge = Date.now() - oldestArticleDate;
+                if (clusterAge < maturityMillis) continue; // Too young
               }
-            }
 
-            // Check freshness: cluster must have at least one fresh article
-            // (Unless freshOnly is false)
-            if (pubConfig.freshOnly) {
-              const hasFreshArticle = clusterArticles.some(a => a.published_at >= freshnessCutoff);
-
-              if (!hasFreshArticle) {
-                continue;
+              // 2. Freshness Check
+              if (pubConfig.freshOnly) {
+                const hasFreshArticle = clusterArticles.some((a: any) => a.published_at >= freshnessCutoff);
+                if (!hasFreshArticle) continue;
               }
-            }
 
-            // Check min sources
-            if (pubConfig.minSources > 1) {
-              const uniqueSources = new Set(clusterArticles.map(a => a.source_name)).size;
-
-              if (uniqueSources < pubConfig.minSources) {
-                continue;
+              // 3. Min Sources Check
+              if (pubConfig.minSources > 1) {
+                const uniqueSources = new Set(clusterArticles.map((a: any) => a.source_name)).size;
+                if (uniqueSources < pubConfig.minSources) continue;
               }
-            }
 
-            filteredClusterIds.push(cluster.id);
-            if (filteredClusterIds.length >= processingLimit) break;
+              filteredClusterIds.push(cluster.id);
+            }
           }
         }
-
 
 
         await updateProgress(0, filteredClusterIds.length, `Démarrage rédaction (${filteredClusterIds.length} clusters qualifiés)...`);
