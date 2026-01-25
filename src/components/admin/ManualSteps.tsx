@@ -161,7 +161,8 @@ export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
                     step, config: getAIConfig(),
                     freshOnly: freshOnly,
                     minSources: minSources,
-                    publishThreshold: minScore // Pass minScore
+                    publishThreshold: minScore, // Pass minScore
+                    ignoreMaturity: true // Manual runs bypass maturity check
                 }),
             });
             const data = await res.json();
@@ -195,7 +196,8 @@ export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
                         config: getAIConfig(),
                         freshOnly: freshOnly,
                         minSources: minSources,
-                        publishThreshold: minScore
+                        publishThreshold: minScore,
+                        ignoreMaturity: true // Manual runs bypass maturity check
                     }),
                     signal: abortControllerRef.current?.signal
                 });
