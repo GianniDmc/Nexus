@@ -77,7 +77,7 @@ export default function NewsFeed() {
         .eq('is_published', true)
         .not('summary_short', 'is', null)
         .order('published_at', { ascending: false })
-        .limit(300); // Fetch enough to cover recent + archives
+        .limit(300);
 
       if (!error && data) {
         const validArticles = data.filter(article => {
@@ -142,7 +142,7 @@ export default function NewsFeed() {
     } else if (filterMode === 'week') {
       result = result.filter(i => now - new Date(i.published_at).getTime() <= (7 * 24 * 60 * 60 * 1000));
     } else if (filterMode === 'archives') {
-      result = result.filter(i => now - new Date(i.published_at).getTime() > HOURS_48); // Archives still starts after 48h to avoid overlap with recent if preferred, or > 7 days? User asked for week apart. Let's keep archives as everything old. or strictly > 7 days? Usually Archives means "Not Today". Let's keep > 48h for now.
+      result = result.filter(i => now - new Date(i.published_at).getTime() > HOURS_48);
     } else if (filterMode === 'saved') {
       result = result.filter(i => readingList.has(i.id));
     }
@@ -242,7 +242,6 @@ export default function NewsFeed() {
 
   const unreadCount = displayedItems.filter(i => !readArticles.has(i.id)).length;
 
-  // Title based on filter
   const getPageTitle = () => {
     switch (filterMode) {
       case 'saved': return 'Ma Liste de lecture';
@@ -253,25 +252,22 @@ export default function NewsFeed() {
   };
 
   if (loading) return (
-    <div className="grid grid-cols-1 md:grid-cols-12 gap-8 h-[80vh]">
-      <div className="md:col-span-5 space-y-4">
-        <div className="h-10 bg-secondary/20 rounded-lg w-full mb-4 animate-pulse" />
-        {[1, 2, 3, 4, 5].map(i => (
-          <div key={i} className="h-24 bg-secondary/30 rounded-xl animate-pulse" />
-        ))}
+    <div className="flex h-full w-full items-center justify-center">
+      <div className="animate-pulse flex flex-col items-center gap-4">
+        <div className="h-12 w-12 bg-secondary/30 rounded-full" />
+        <div className="h-4 w-32 bg-secondary/30 rounded" />
       </div>
-      <div className="hidden md:block md:col-span-7 bg-secondary/10 rounded-2xl animate-pulse" />
     </div>
   );
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-12 gap-6 lg:gap-10 pb-20 items-start">
+    <div className="h-full w-full grid grid-cols-1 md:grid-cols-12 overflow-hidden bg-background">
 
-      {/* LEFT COLUMN: List */}
-      <div className="md:col-span-5 flex flex-col h-[calc(100vh-100px)]">
+      {/* LEFT COLUMN: List (Scrollable Independent) */}
+      <div className="md:col-span-5 lg:col-span-4 flex flex-col h-full overflow-hidden border-r border-border/40 bg-card/20 relative">
 
-        {/* Controls Header (Sticky) */}
-        <div className="sticky top-0 z-10 bg-background/95 backdrop-blur py-4 border-b border-border/40 mb-2 overflow-hidden">
+        {/* Sticky Header with Controls */}
+        <div className="flex-shrink-0 bg-background/95 backdrop-blur z-20 border-b border-border/40 p-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-serif font-medium text-primary flex items-center gap-2">
               <Filter className="w-4 h-4 text-accent" />
@@ -284,34 +280,32 @@ export default function NewsFeed() {
               <button
                 onClick={() => setSortBy(sortBy === 'date' ? 'score' : 'date')}
                 className="text-[10px] font-bold uppercase tracking-widest flex items-center gap-1 text-muted hover:text-accent transition-colors"
+                title={sortBy === 'date' ? 'Trier par date' : 'Trier par pertinence'}
               >
                 <ArrowUpDown className="w-3 h-3" />
-                {sortBy === 'date' ? 'Récents' : 'Pertinence'}
+                {sortBy === 'date' ? 'Date' : 'Score'}
               </button>
             </div>
           </div>
 
-          {/* Category Dropdown */}
-          <div className="mt-2">
-            <div className="relative">
-              <select
-                value={activeCategory}
-                onChange={(e) => setActiveCategory(e.target.value)}
-                className="w-full appearance-none bg-secondary/30 border border-border/50 text-foreground text-xs font-medium rounded-lg pl-3 pr-8 py-2 focus:outline-none focus:border-accent/50 transition-all cursor-pointer hover:bg-secondary/50"
-              >
-                {categories.map(cat => (
-                  <option key={cat} value={cat}>{cat}</option>
-                ))}
-              </select>
-              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-muted-foreground">
-                <Filter className="h-3 w-3" />
-              </div>
+          <div className="relative">
+            <select
+              value={activeCategory}
+              onChange={(e) => setActiveCategory(e.target.value)}
+              className="w-full appearance-none bg-secondary/40 border border-border/50 text-foreground text-xs font-medium rounded-lg pl-3 pr-8 py-2 focus:outline-none focus:border-accent/50 transition-all cursor-pointer hover:bg-secondary/50"
+            >
+              {categories.map(cat => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-muted-foreground">
+              <Filter className="h-3 w-3" />
             </div>
           </div>
         </div>
 
-        {/* Scrollable List */}
-        <div className="flex-1 overflow-y-auto no-scrollbar pb-20 space-y-3">
+        {/* Scrollable Items Container */}
+        <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-3">
           {displayedItems.length === 0 && (
             <div className="text-center py-10 text-muted italic text-sm">
               {filterMode === 'saved' ? "Votre liste de lecture est vide." : "Aucun article trouvé."}
@@ -323,7 +317,6 @@ export default function NewsFeed() {
             const isSaved = readingList.has(article.id);
             const date = new Date(article.published_at);
 
-            // Check for date header
             const prevArticle = index > 0 ? displayedItems[index - 1] : null;
             const showDateHeader = !prevArticle ||
               new Date(article.published_at).toDateString() !== new Date(prevArticle.published_at).toDateString();
@@ -331,62 +324,39 @@ export default function NewsFeed() {
             return (
               <div key={article.id}>
                 {showDateHeader && (
-                  <div className="sticky top-0 z-0 bg-background/95 backdrop-blur px-2 py-1.5 mb-2 mt-4 first:mt-0 text-xs font-bold uppercase tracking-widest text-muted-foreground/70 border-b border-border/30">
+                  <div className="sticky top-0 z-10 bg-background/90 backdrop-blur px-2 py-1.5 mb-2 -mx-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70 border-b border-border/30">
                     {formatDateHeader(article.published_at)}
                   </div>
                 )}
                 <div
                   onClick={() => selectArticle(article.id)}
-                  className={`group cursor-pointer p-4 rounded-xl border transition-all duration-300 relative ${isSelected
-                    ? 'bg-accent/5 border-accent/50 shadow-md ring-1 ring-accent/20'
+                  className={`group cursor-pointer p-3 rounded-xl border transition-all duration-200 relative ${isSelected
+                    ? 'bg-accent/5 border-accent/60 shadow-md ring-1 ring-accent/10'
                     : isRead
                       ? 'bg-card/30 border-border/20 opacity-60'
-                      : 'bg-card/50 border-border/40 hover:bg-card hover:border-border'
+                      : 'bg-card/60 border-border/40 hover:bg-card hover:border-border'
                     }`}
                 >
-                  <div className="flex items-start gap-4">
-                    <div className="flex flex-col items-center gap-1 mt-1">
-                      <div className={`text-xs font-mono font-bold ${isSelected ? 'text-accent' : isRead ? 'text-muted/20' : 'text-muted/30'}`}>
+                  <div className="flex items-start gap-3">
+                    <div className="flex flex-col items-center gap-1 mt-0.5">
+                      <div className={`text-[10px] font-mono leading-none ${isSelected ? 'text-accent font-bold' : 'text-muted/40'}`}>
                         {(index + 1).toString().padStart(2, '0')}
                       </div>
-                      <button
-                        onClick={(e) => toggleReadStatus(article.id, e)}
-                        className={`p-0.5 rounded-full transition-colors ${isRead
-                          ? 'text-green-500/50 hover:text-green-500 hover:bg-green-500/10'
-                          : 'text-transparent hover:text-muted-foreground/30'}`}
-                        title={isRead ? "Marquer comme non lu" : "Marquer comme lu"}
-                      >
-                        <Check className="w-3 h-3" />
-                      </button>
+                      {isRead && <Check className="w-3 h-3 text-green-500/50" />}
                     </div>
 
-                    <div className="flex-1">
+                    <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
-                        <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">{article.category || 'Tech'}</span>
-                        <span className="text-[9px] text-muted">• {formatDistanceToNow(date)}</span>
-                        {sortBy === 'score' && article.final_score > 0 && (
-                          <span className="text-[9px] font-bold text-accent bg-accent/10 px-1.5 py-0.5 rounded-full flex items-center gap-1">
-                            <Sparkles className="w-2.5 h-2.5" />
-                            {article.final_score}/10
-                          </span>
+                        <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground truncate max-w-[100px]">{article.category}</span>
+                        <span className="text-[9px] text-muted whitespace-nowrap">• {formatDistanceToNow(date)}</span>
+                        {article.final_score > 7 && (
+                          <Sparkles className="w-2 h-2 text-accent" />
                         )}
                       </div>
-                      <h4 className={`text-sm font-medium leading-snug ${isRead ? 'text-primary/50' : isSelected ? 'text-primary' : 'text-primary/80'}`}>
+                      <h4 className={`text-sm font-medium leading-snug line-clamp-2 ${isRead ? 'text-primary/60' : isSelected ? 'text-primary' : 'text-primary/90'}`}>
                         {article.title}
                       </h4>
                     </div>
-
-                    {/* Bookmark Button */}
-                    <button
-                      onClick={(e) => toggleReadingList(article.id, e)}
-                      className={`p-1.5 rounded-lg transition-all ${isSaved
-                        ? 'bg-accent/20 text-accent'
-                        : 'text-muted/30 hover:text-accent hover:bg-accent/10'
-                        }`}
-                      title={isSaved ? "Retirer de ma liste" : "Ajouter à ma liste"}
-                    >
-                      <Bookmark className={`w-4 h-4 ${isSaved ? 'fill-current' : ''}`} />
-                    </button>
                   </div>
                 </div>
               </div>
@@ -395,162 +365,129 @@ export default function NewsFeed() {
         </div>
       </div>
 
-      {/* RIGHT COLUMN: Preview (Desktop: Sticky, Mobile: Full Screen Overlay) */}
+      {/* RIGHT COLUMN: Article (Full Height Scrollable) */}
       <AnimatePresence mode="wait">
         {(selectedArticle || (typeof window !== 'undefined' && window.innerWidth >= 768)) && (
-          <div className={`
-            md:block md:col-span-7 md:sticky md:top-6 md:h-[calc(100vh-100px)] md:overflow-hidden
-            ${selectedArticle
-              ? 'fixed inset-0 z-50 bg-background md:static md:bg-transparent md:z-auto flex flex-col'
-              : 'hidden md:block'}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className={`
+            md:col-span-7 lg:col-span-8 h-full overflow-hidden flex flex-col relative bg-background
+            ${selectedArticle ? 'fixed inset-0 z-50 md:static md:z-auto' : 'hidden md:flex'}
           `}>
-            {/* Mobile Close Button Header */}
-            <div className="md:hidden flex items-center justify-between p-4 border-b border-border bg-background/95 backdrop-blur">
-              <button
-                onClick={() => setSelectedId(null)}
-                className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground"
-              >
+            {/* Mobile Close Button */}
+            <div className="md:hidden flex-shrink-0 flex items-center justify-between p-4 border-b border-border bg-background/95 backdrop-blur z-50">
+              <button onClick={() => setSelectedId(null)} className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
                 <ChevronRight className="w-4 h-4 rotate-180" /> Retour
               </button>
-              <span className="text-xs font-bold uppercase tracking-widest opacity-50">Lecture</span>
             </div>
 
-            <motion.div
-              key={selectedArticle ? selectedArticle.id : 'empty'}
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              transition={{ duration: 0.2 }}
-              className="h-full bg-card border border-border/50 md:rounded-2xl shadow-2xl flex flex-col overflow-hidden"
-            >
-              {selectedArticle ? (
-                <>
-                  <div className="relative h-48 sm:h-64 flex-shrink-0 flex items-center justify-center overflow-hidden">
-                    {selectedArticle.image_url ? (
-                      <>
-                        <img
-                          src={selectedArticle.image_url}
-                          alt={selectedArticle.title}
-                          className="absolute inset-0 w-full h-full object-cover"
-                        />
-                        <div className="absolute inset-0 bg-gradient-to-t from-background via-background/20 to-transparent" />
-                      </>
-                    ) : (
-                      <div className="absolute inset-0 bg-gradient-to-br from-accent/10 to-background flex items-center justify-center">
-                        <Sparkles className="w-16 h-16 text-accent/20" />
-                      </div>
-                    )}
+            {selectedArticle ? (
+              <div className="flex-1 w-full overflow-y-auto custom-scrollbar">
+                {/* Article Hero Image */}
+                <div className="relative h-48 md:h-80 w-full flex-shrink-0 overflow-hidden">
+                  {selectedArticle.image_url ? (
+                    <>
+                      <img src={selectedArticle.image_url} alt={selectedArticle.title} className="absolute inset-0 w-full h-full object-cover" />
+                      <div className="absolute inset-0 bg-gradient-to-t from-background via-background/20 to-transparent" />
+                    </>
+                  ) : (
+                    <div className="absolute inset-0 bg-gradient-to-br from-accent/10 to-background flex items-center justify-center">
+                      <Sparkles className="w-20 h-20 text-accent/20" />
+                    </div>
+                  )}
 
-                    <div className="absolute bottom-4 left-6 right-6 flex justify-between items-end z-10">
-                      <span className="px-2 py-1 bg-background/80 backdrop-blur rounded text-[10px] font-bold uppercase tracking-wider text-accent border border-accent/20">
+                  <div className="absolute bottom-6 left-6 right-6 flex justify-between items-end z-10">
+                    <div className="flex items-center gap-3">
+                      <span className="px-2.5 py-1 bg-background/80 backdrop-blur rounded-md text-[10px] font-bold uppercase tracking-wider text-accent border border-accent/20 shadow-sm">
                         {selectedArticle.category}
                       </span>
-                      <div className="flex gap-2">
-                        {selectedArticle.final_score > 7 && (
-                          <span className="px-2 py-1 bg-green-500/10 text-green-500 rounded text-[10px] font-bold uppercase tracking-wider border border-green-500/20 flex items-center gap-1 backdrop-blur-sm">
-                            <Sparkles className="w-3 h-3" /> Top Info
-                          </span>
-                        )}
-
-                        {/* Toggle Read Status (Eye) */}
-                        <button
-                          onClick={(e) => toggleReadStatus(selectedArticle.id, e)}
-                          className="px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider border flex items-center gap-1 transition-all backdrop-blur-sm bg-background/80 text-muted border-border/20 hover:border-primary hover:text-primary"
-                          title={readArticles.has(selectedArticle.id) ? "Marquer comme non lu" : "Marquer comme lu"}
-                        >
-                          <EyeOff className="w-3 h-3" />
-                          {readArticles.has(selectedArticle.id) ? "Non lu" : "Lu"}
-                        </button>
-
-                        <button
-                          onClick={(e) => toggleReadingList(selectedArticle.id, e)}
-                          className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider border flex items-center gap-1 transition-all backdrop-blur-sm ${readingList.has(selectedArticle.id)
-                            ? 'bg-accent/10 text-accent border-accent/20'
-                            : 'bg-background/80 text-muted border-border/20 hover:border-accent hover:text-accent'
-                            }`}
-                        >
-                          <Bookmark className={`w-3 h-3 ${readingList.has(selectedArticle.id) ? 'fill-current' : ''}`} />
-                          {readingList.has(selectedArticle.id) ? 'Sauvegardé' : 'Sauvegarder'}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="p-6 md:p-8 overflow-y-auto flex-1 custom-scrollbar pb-24 md:pb-8">
-                    <h1 className="text-2xl lg:text-3xl font-serif font-medium text-primary mb-6 leading-tight">
-                      {selectedArticle.title}
-                    </h1>
-
-                    <div className="prose prose-sm dark:prose-invert prose-p:text-muted-foreground max-w-none">
-                      <p className="text-lg leading-relaxed text-foreground/90 mb-8 border-l-2 border-accent pl-4 italic">
-                        {JSON.parse(selectedArticle.summary_short).tldr}
-                      </p>
-
-                      <div className="space-y-4 text-base leading-relaxed text-foreground/80">
-                        {(JSON.parse(selectedArticle.summary_short).full || "").split('\n').map((paragraph: string, i: number) => (
-                          paragraph.trim() && <p key={i}>{paragraph}</p>
-                        ))}
-                      </div>
-
-                      <div className="mt-8 bg-secondary/20 rounded-xl p-5 border border-border/40">
-                        <h3 className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-primary mb-3">
-                          <Sparkles className="w-4 h-4 text-accent" /> Analyse & Impact
-                        </h3>
-                        <p className="text-sm leading-relaxed">
-                          {JSON.parse(selectedArticle.summary_short).analysis || "Pas d'analyse spécifique disponible."}
-                        </p>
-                      </div>
                     </div>
 
-                    {/* PREMIUM SOURCES FOOTER */}
-                    <div className="mt-10 border-t border-border/40 pt-6">
-                      <button
-                        onClick={() => setShowSources(!showSources)}
-                        className="flex items-center justify-between w-full group mb-4 py-2 hover:bg-secondary/10 rounded-lg transition-colors px-2 -mx-2"
-                      >
-                        <span className="text-sm font-bold uppercase tracking-widest text-primary/80 flex items-center gap-2">
-                          <span className="bg-accent/10 p-1 rounded-md"><Sparkles className="w-3 h-3 text-accent" /></span>
-                          Couverture complète ({clusterArticles.length} sources)
-                        </span>
-                        <ChevronRight className={`w-4 h-4 text-muted-foreground transition-transform duration-300 ${showSources ? 'rotate-90' : ''}`} />
+                    <div className="flex gap-2">
+                      <button onClick={(e) => toggleReadStatus(selectedArticle.id, e)} className="p-2 bg-background/60 backdrop-blur rounded-full hover:bg-background transition-all border border-transparent hover:border-border text-muted-foreground hover:text-primary" title="Marquer lu/non-lu">
+                        <EyeOff className="w-4 h-4" />
                       </button>
+                      <button onClick={(e) => toggleReadingList(selectedArticle.id, e)} className={`p-2 bg-background/60 backdrop-blur rounded-full hover:bg-background transition-all border border-transparent hover:border-border ${readingList.has(selectedArticle.id) ? 'text-accent' : 'text-muted-foreground hover:text-accent'}`} title="Sauvegarder">
+                        <Bookmark className={`w-4 h-4 ${readingList.has(selectedArticle.id) ? 'fill-current' : ''}`} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
 
-                      <div className={`space-y-3 pl-1 transition-all duration-500 overflow-hidden ${showSources ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'}`}>
-                        {clusterArticles.map((article) => (
-                          <a
-                            key={article.id}
-                            href={article.source_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="block bg-card/40 hover:bg-secondary/20 p-3 rounded-lg border border-border/30 hover:border-accent/30 transition-all group/card relative"
-                          >
-                            <div className="flex justify-between items-start gap-4">
-                              <div>
-                                <h4 className="text-sm font-medium text-foreground/90 group-hover/card:text-primary leading-snug mb-2">
-                                  {article.title}
-                                </h4>
-                                <div className="flex items-center gap-2 text-[10px] text-muted-foreground uppercase tracking-wide font-bold">
-                                  <span className="text-accent">{article.source_name}</span>
-                                  <span className="w-0.5 h-0.5 bg-muted-foreground rounded-full"></span>
-                                  <span>{formatDistanceToNow(new Date(article.published_at))}</span>
-                                </div>
-                              </div>
-                              <ExternalLink className="w-3 h-3 text-muted-foreground/50 group-hover/card:text-accent group-hover/card:translate-x-0.5 group-hover/card:-translate-y-0.5 transition-all" />
-                            </div>
-                          </a>
-                        ))}
-                      </div>
+                {/* Content Container */}
+                <div className="max-w-4xl mx-auto p-6 md:p-10 lg:p-14 pb-32">
+                  <h1 className="text-2xl md:text-4xl font-serif font-medium text-primary mb-8 leading-tight">
+                    {selectedArticle.title}
+                  </h1>
+
+                  <div className="prose prose-lg dark:prose-invert prose-headings:font-serif prose-p:text-muted-foreground/90 max-w-none">
+                    <p className="text-xl md:text-2xl leading-relaxed text-foreground/90 mb-10 border-l-4 border-accent pl-6 italic font-serif">
+                      {JSON.parse(selectedArticle.summary_short).tldr}
+                    </p>
+
+                    <div className="space-y-6 text-lg leading-relaxed text-foreground/85">
+                      {(JSON.parse(selectedArticle.summary_short).full || "").split('\n').map((paragraph: string, i: number) => (
+                        paragraph.trim() && <p key={i}>{paragraph}</p>
+                      ))}
                     </div>
 
+                    <div className="mt-12 bg-secondary/30 rounded-2xl p-6 border border-border/50">
+                      <h3 className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-primary mb-4">
+                        <Sparkles className="w-4 h-4 text-accent" /> Analyse & Impact
+                      </h3>
+                      <p className="text-base leading-relaxed text-muted-foreground">
+                        {JSON.parse(selectedArticle.summary_short).analysis || "Pas d'analyse spécifique disponible."}
+                      </p>
+                    </div>
                   </div>
-                </>
-              ) : (
-                <div className="h-full flex items-center justify-center text-muted italic">
-                  Sélectionnez un article pour lire le contenu.
+
+                  {/* Premium Sources Footer */}
+                  <div className="mt-16 border-t border-border/40 pt-10">
+                    <div className="flex items-center justify-between mb-6">
+                      <h3 className="text-sm font-bold uppercase tracking-widest text-primary/80 flex items-center gap-2">
+                        Couverture Complète
+                        <span className="bg-secondary px-2 py-0.5 rounded-full text-[10px]">{clusterArticles.length} sources</span>
+                      </h3>
+                    </div>
+
+                    {/* Always visible grid of sources (or collapsible if preferred, kept visible for 'full coverage' feel) */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {clusterArticles.map((article) => (
+                        <a
+                          key={article.id}
+                          href={article.source_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="group block bg-card/40 hover:bg-secondary/30 p-4 rounded-xl border border-border/40 hover:border-accent/40 transition-all"
+                        >
+                          <h4 className="text-sm font-medium text-foreground/90 group-hover:text-primary leading-snug mb-2 line-clamp-2">
+                            {article.title}
+                          </h4>
+                          <div className="flex items-center justify-between mt-3">
+                            <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                              <span className="text-accent">{article.source_name}</span>
+                              <span className="w-1 h-1 bg-muted-foreground rounded-full" />
+                              <span>{formatDistanceToNow(new Date(article.published_at))}</span>
+                            </div>
+                            <ExternalLink className="w-3 h-3 text-muted-foreground/40 group-hover:text-accent transition-colors" />
+                          </div>
+                        </a>
+                      ))}
+                    </div>
+                  </div>
                 </div>
-              )}
-            </motion.div>
-          </div>
+              </div>
+            ) : (
+              <div className="h-full w-full flex flex-col items-center justify-center text-muted-foreground/50 bg-card/5 animate-pulse">
+                <div className="w-24 h-24 rounded-full bg-secondary/20 mb-4 flex items-center justify-center">
+                  <Sparkles className="w-10 h-10 opacity-20" />
+                </div>
+                <p className="text-sm font-medium">Sélectionnez un article pour commencer la lecture</p>
+              </div>
+            )}
+          </motion.div>
         )}
       </AnimatePresence>
 
