@@ -13,6 +13,12 @@ import {
   getProcessingState,
   updateProgress
 } from '@/lib/processing-state';
+import {
+  PUBLICATION_RULES,
+  getPublicationConfig,
+  getFreshnessCutoff,
+  type PublicationOverrides
+} from '@/lib/publication-rules';
 
 type Step = 'embedding' | 'clustering' | 'scoring' | 'rewriting' | 'all';
 
@@ -33,7 +39,7 @@ export async function POST(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const stepParam = searchParams.get('step');
 
-  let body: { step?: string, config?: AIOverrideConfig, freshOnly?: boolean, minSources?: number } = {};
+  let body: { step?: string, config?: AIOverrideConfig } & PublicationOverrides = {};
   try {
     body = await req.json();
   } catch (e) {
@@ -42,6 +48,7 @@ export async function POST(req: NextRequest) {
 
   const step = ((body.step || stepParam) as Step) || 'all';
   const aiConfig = body.config;
+  const pubConfig = getPublicationConfig(body);  // Centralized config with overrides
 
   // Register this processing session (for loop mode detection via UI)
   // Returns false if a stop was requested
@@ -58,7 +65,7 @@ export async function POST(req: NextRequest) {
   }
 
   const hasPaidKey = !!(aiConfig?.openaiKey || aiConfig?.anthropicKey || aiConfig?.geminiKey);
-  const publishThreshold = 4.0;
+  const publishThreshold = pubConfig.publishThreshold;  // From centralized config
   // Speed Boost: 50 items/loop if paid, 10 if free. Batch 25 vs 5. Delay 100ms vs 2s.
   const processingLimit = hasPaidKey ? 50 : 10;
   const llmDelayMs = hasPaidKey ? 100 : 2500;
@@ -220,16 +227,9 @@ export async function POST(req: NextRequest) {
         .gte('final_score', publishThreshold)
         .is('summary_short', null);
 
-      // Option: Only fresh content (< 48h)
-      // On récupère `freshOnly` depuis le body (envoyé par le frontend)
-      if (body.freshOnly) {
-        const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-        query = query.gte('published_at', twoDaysAgo);
-      }
-
       const { data: clustersToProcess } = await query
         .order('final_score', { ascending: false })
-        .limit(processingLimit);
+        .limit(processingLimit * 2); // Fetch more to filter by freshness at cluster level
 
       const candidates = Array.from(new Set(clustersToProcess?.map(a => a.cluster_id)));
       const uniqueClusterIds: string[] = [];
@@ -246,28 +246,48 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      await updateProgress(0, uniqueClusterIds.length, 'Démarrage de la rédaction...');
+      // Filter clusters based on freshness and sources at cluster level
+      const freshnessCutoff = pubConfig.freshnessCutoff;
+      const filteredClusterIds: string[] = [];
 
       for (const clusterId of uniqueClusterIds) {
         if (!clusterId) continue;
-        await updateProgress(results.rewritten + 1, uniqueClusterIds.length, `Rédaction (${results.rewritten + 1}/${uniqueClusterIds.length})...`);
 
-        if (await shouldStopProcessing()) { results.stopped = true; break; }
+        const { data: clusterArticles } = await supabase
+          .from('articles')
+          .select('source_name, published_at')
+          .eq('cluster_id', clusterId);
 
-        // Option: Min Sources Filter
-        if (body.minSources && body.minSources > 1) {
-          const { data: clusterArticles } = await supabase
-            .from('articles')
-            .select('source_name')
-            .eq('cluster_id', clusterId);
+        if (!clusterArticles || clusterArticles.length === 0) continue;
 
-          const uniqueSources = new Set(clusterArticles?.map(a => a.source_name)).size;
-          if (uniqueSources < body.minSources) {
-            console.log(`[PROCESS] Skipped cluster ${clusterId} (Sources: ${uniqueSources} < ${body.minSources})`);
-            await updateProgress(results.rewritten + 1, uniqueClusterIds.length, `Skipped (Src < ${body.minSources})...`);
+        // Check freshness: cluster must have at least one fresh article
+        if (pubConfig.freshOnly) {
+          const hasFreshArticle = clusterArticles.some(a => a.published_at >= freshnessCutoff);
+          if (!hasFreshArticle) {
+            console.log(`[PROCESS] Skipped cluster ${clusterId} (No fresh article < ${PUBLICATION_RULES.FRESHNESS_HOURS}h)`);
             continue;
           }
         }
+
+        // Check min sources
+        if (pubConfig.minSources > 1) {
+          const uniqueSources = new Set(clusterArticles.map(a => a.source_name)).size;
+          if (uniqueSources < pubConfig.minSources) {
+            console.log(`[PROCESS] Skipped cluster ${clusterId} (Sources: ${uniqueSources} < ${pubConfig.minSources})`);
+            continue;
+          }
+        }
+
+        filteredClusterIds.push(clusterId);
+        if (filteredClusterIds.length >= processingLimit) break;
+      }
+
+      await updateProgress(0, filteredClusterIds.length, `Démarrage rédaction (${filteredClusterIds.length} clusters qualifiés)...`);
+
+      for (const clusterId of filteredClusterIds) {
+        await updateProgress(results.rewritten + 1, filteredClusterIds.length, `Rédaction (${results.rewritten + 1}/${filteredClusterIds.length})...`);
+
+        if (await shouldStopProcessing()) { results.stopped = true; break; }
 
         const { data: sources } = await supabase
           .from('articles')
