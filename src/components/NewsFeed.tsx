@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useSearchParams } from 'next/navigation';
-import { Sparkles, ChevronRight, ExternalLink, Filter, ArrowUpDown, Bookmark, Check, Archive, EyeOff } from 'lucide-react';
+import { Sparkles, ChevronRight, ExternalLink, Filter, ArrowUpDown, Bookmark, Check, Archive, EyeOff, Newspaper } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 type SortOption = 'date' | 'score';
@@ -111,7 +111,8 @@ export default function NewsFeed() {
                 analysis: summary.content_analysis,
                 isFullSynthesis: true,
                 sourceCount: summary.source_count
-              })
+              }),
+              source_count: summary.source_count // Direct property for UI access
             };
           });
 
@@ -364,6 +365,22 @@ export default function NewsFeed() {
                       <div className="flex items-center gap-2 mb-1">
                         <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground truncate max-w-[100px]">{article.category}</span>
                         <span className="text-[9px] text-muted whitespace-nowrap">• {formatDistanceToNow(date)}</span>
+
+                        {/* Source Count Indicator */}
+                        {article.source_count > 1 && (
+                          <span className="flex items-center gap-1 text-[9px] text-muted-foreground bg-secondary/50 px-1.5 py-0.5 rounded-full">
+                            <Newspaper className="w-3 h-3" />
+                            {article.source_count}
+                          </span>
+                        )}
+
+                        {/* Score Display (only when sorting by score) */}
+                        {sortBy === 'score' && article.final_score !== null && (
+                          <span className="text-[9px] font-bold text-accent">
+                            {article.final_score}
+                          </span>
+                        )}
+
                         {article.final_score > 7 && (
                           <Sparkles className="w-2 h-2 text-accent" />
                         )}
