@@ -118,7 +118,7 @@ export default function NewsFeed() {
         setItems(mappedItems);
 
         // Auto-select first item on desktop
-        if (mappedItems.length > 0 && typeof window !== 'undefined' && window.innerWidth >= 768) {
+        if (mappedItems.length > 0 && typeof window !== 'undefined' && window.innerWidth >= 1024) {
           setSelectedId(mappedItems[0].id);
         }
       } else {
@@ -276,10 +276,10 @@ export default function NewsFeed() {
   );
 
   return (
-    <div className="h-full w-full grid grid-cols-1 md:grid-cols-12 overflow-hidden bg-background">
+    <div className="h-full w-full grid grid-cols-1 lg:grid-cols-12 overflow-hidden bg-background">
 
       {/* LEFT COLUMN: List (Scrollable Independent) */}
-      <div className="md:col-span-5 lg:col-span-4 flex flex-col h-full overflow-hidden border-r border-border/40 bg-card/20 relative">
+      <div className="lg:col-span-4 flex flex-col h-full overflow-hidden border-r border-border/40 bg-card/20 relative">
 
         {/* Sticky Header with Controls */}
         <div className="flex-shrink-0 bg-background/95 backdrop-blur z-20 border-b border-border/40 p-4">
@@ -382,17 +382,17 @@ export default function NewsFeed() {
 
       {/* RIGHT COLUMN: Article (Full Height Scrollable) */}
       <AnimatePresence mode="wait">
-        {(selectedArticle || (typeof window !== 'undefined' && window.innerWidth >= 768)) && (
+        {(selectedArticle || (typeof window !== 'undefined' && window.innerWidth >= 1024)) && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className={`
-            md:col-span-7 lg:col-span-8 h-full overflow-hidden flex flex-col relative bg-background
-            ${selectedArticle ? 'fixed inset-0 z-50 md:static md:z-auto' : 'hidden md:flex'}
+            lg:col-span-8 h-full overflow-hidden flex flex-col bg-background
+            ${selectedArticle ? 'fixed inset-0 z-[100] lg:static lg:z-auto lg:relative' : 'hidden lg:flex lg:relative'}
           `}>
             {/* Mobile Close Button */}
-            <div className="md:hidden flex-shrink-0 flex items-center justify-between p-4 border-b border-border bg-background/95 backdrop-blur z-50">
+            <div className="lg:hidden flex-shrink-0 flex items-center justify-between p-4 border-b border-border bg-background/95 backdrop-blur z-50">
               <button onClick={() => setSelectedId(null)} className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
                 <ChevronRight className="w-4 h-4 rotate-180" /> Retour
               </button>
