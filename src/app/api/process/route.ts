@@ -78,7 +78,7 @@ export async function POST(req: NextRequest) {
     openaiKey: body.config?.openaiKey || envPaidOpenAI,
     anthropicKey: body.config?.anthropicKey || envPaidAnthropic,
     geminiKey: body.config?.geminiKey || envPaidGoogle,
-    preferredProvider: body.config?.preferredProvider || ( ? 'openai' : envPaidAnthropic ? 'anthropic' : 'auto')
+    preferredProvider: body.config?.preferredProvider || (envPaidOpenAI ? 'openai' : envPaidAnthropic ? 'anthropic' : 'auto')
   };
 
   // Fast Mode is enabled ONLY if we have a PAID key active in the config
