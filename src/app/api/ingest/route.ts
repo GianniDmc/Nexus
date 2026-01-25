@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import Parser from 'rss-parser';
 import { createClient } from '@supabase/supabase-js';
 import { scrapeArticle } from '@/lib/scraper';
+import { getIngestionCutoff, PUBLICATION_RULES } from '@/lib/publication-rules';
 
 // Configuration du parser avec un User-Agent pour éviter les blocages (403/404)
 const parser = new Parser({
@@ -105,9 +106,18 @@ export async function GET(req: Request) {
     for (const source of sources) {
       try {
         const feed = await parser.parseURL(source.url);
-        const validItems = feed.items.filter(item => item.link);
 
-        console.log(`[INGEST] Source: ${source.name} - ${validItems.length} items in RSS`);
+        const ingestionCutoff = getIngestionCutoff();
+        const allItems = feed.items;
+
+        const validItems = allItems.filter(item => {
+          if (!item.link) return false;
+          const pubDate = item.isoDate ? new Date(item.isoDate) : (item.pubDate ? new Date(item.pubDate) : new Date());
+          return pubDate >= ingestionCutoff;
+        });
+
+        const skippedCount = allItems.length - validItems.length;
+        console.log(`[INGEST] Source: ${source.name} - ${validItems.length} items to process (${skippedCount} older than ${PUBLICATION_RULES.INGESTION_MAX_AGE_HOURS}h)`);
 
         let totalAdded = 0;
 

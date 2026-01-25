@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Database, GitBranch, Star, PenTool, RefreshCw, Square, CheckCircle, AlertCircle, Infinity, Rss, ChevronDown, ChevronUp } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import { PUBLICATION_RULES } from '@/lib/publication-rules';
 
 type Step = 'embedding' | 'clustering' | 'scoring' | 'rewriting';
 
@@ -43,8 +44,8 @@ interface PipelineStats {
 export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
     const [runningStep, setRunningStep] = useState<Step | null>(null);
     const [isLooping, setIsLooping] = useState(false);
-    const [freshOnly, setFreshOnly] = useState(false); // Option: Fresh content only
-    const [minSources, setMinSources] = useState(1); // New: Cluster density filter
+    const [freshOnly, setFreshOnly] = useState<boolean>(PUBLICATION_RULES.FRESH_ONLY_DEFAULT); // Aligned with config
+    const [minSources, setMinSources] = useState<number>(PUBLICATION_RULES.MIN_SOURCES); // Aligned with config
     const [progress, setProgress] = useState<{ step: Step; total: number; current: number } | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [stats, setStats] = useState<PipelineStats>({});
