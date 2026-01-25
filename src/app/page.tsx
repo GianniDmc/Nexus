@@ -4,15 +4,15 @@ export const dynamic = 'force-dynamic';
 
 export default function Home() {
   return (
-    <div className="w-full max-w-full 2xl:max-w-[1600px] mx-auto px-2 py-4 md:p-8 lg:p-12">
-      {/* Page Header */}
-      <header className="mb-12">
-        <h2 className="text-3xl font-serif font-medium text-primary">Le Flux</h2>
-        <p className="text-sm text-muted mt-1">L'essentiel de l'actualité tech, sans bruit.</p>
+    <div className="h-full w-full flex flex-col overflow-hidden bg-background">
+      {/* Page Header (Fixed height) */}
+      <header className="flex-shrink-0 px-4 py-4 md:px-6 md:py-6 border-b border-border/40 bg-background/50 backdrop-blur-sm z-10">
+        <h2 className="text-2xl font-serif font-medium text-primary tracking-tight">Le Flux</h2>
+        <p className="text-xs text-muted-foreground mt-0.5">L'essentiel de l'actualité tech, en temps réel.</p>
       </header>
 
-      {/* Main Grid Content */}
-      <main>
+      {/* Main Content (Flex Grow, No Padding on container to allow full edge scroll) */}
+      <main className="flex-1 overflow-hidden relative min-h-0">
         <NewsFeed />
       </main>
     </div>

@@ -2,7 +2,7 @@
 
 import { useState, Suspense } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, usePathname } from 'next/navigation';
 import {
   Settings,
   Search,
@@ -43,6 +43,8 @@ function SidebarLink({ href, icon, label, onClick }: { href: string; icon: React
 
 export function AppShell({ children }: AppShellProps) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const pathname = usePathname();
+  const isHomePage = pathname === '/';
 
   return (
     <div className="flex h-screen bg-background text-foreground overflow-hidden">
@@ -121,8 +123,8 @@ export function AppShell({ children }: AppShellProps) {
           </button>
         </header>
 
-        {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto scroll-smooth">
+        {/* Content Wrapper (Conditional scroll based on page) */}
+        <div className={`flex-1 flex flex-col relative ${isHomePage ? 'overflow-hidden' : 'overflow-y-auto scroll-smooth'}`}>
           {children}
         </div>
 
