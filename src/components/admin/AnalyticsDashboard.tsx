@@ -132,9 +132,10 @@ export function AnalyticsDashboard() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Daily Activity */}
                 <div className="bg-card border border-border rounded-xl p-6">
-                    <h3 className="text-sm font-bold uppercase tracking-wider text-primary mb-4 flex items-center gap-2">
+                    <h3 className="text-sm font-bold uppercase tracking-wider text-primary mb-1 flex items-center gap-2">
                         <Activity className="w-4 h-4 text-accent" /> Activité (7 derniers jours)
                     </h3>
+                    <p className="text-[10px] text-muted-foreground mb-4">Nombre d'articles ingérés par jour depuis vos flux RSS. Un pic indique une forte actualité ou un nouveau flux ajouté.</p>
                     <div className="h-48">
                         <ResponsiveContainer width="100%" height="100%">
                             <AreaChart data={data.dailyActivity}>
@@ -158,7 +159,8 @@ export function AnalyticsDashboard() {
 
                 {/* Score Distribution */}
                 <div className="bg-card border border-border rounded-xl p-6">
-                    <h3 className="text-sm font-bold uppercase tracking-wider text-primary mb-4">📊 Distribution des Scores</h3>
+                    <h3 className="text-sm font-bold uppercase tracking-wider text-primary mb-1">📊 Distribution des Scores</h3>
+                    <p className="text-[10px] text-muted-foreground mb-4">Répartition des scores de pertinence (0-10) attribués par l'IA. Les articles &gt;5 sont éligibles à la publication.</p>
                     <div className="h-48">
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={data.scoreDistribution}>
@@ -179,7 +181,8 @@ export function AnalyticsDashboard() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Category Pie */}
                 <div className="bg-card border border-border rounded-xl p-6">
-                    <h3 className="text-sm font-bold uppercase tracking-wider text-primary mb-4">🗂️ Répartition par Catégorie</h3>
+                    <h3 className="text-sm font-bold uppercase tracking-wider text-primary mb-1">🗂️ Répartition par Catégorie</h3>
+                    <p className="text-[10px] text-muted-foreground mb-4">Distribution thématique des articles publiés. Les catégories sont assignées automatiquement par l'IA lors du scoring.</p>
                     <div className="h-56 flex items-center gap-4">
                         <div className="w-1/2 h-full">
                             <ResponsiveContainer width="100%" height="100%">
@@ -219,7 +222,8 @@ export function AnalyticsDashboard() {
 
                 {/* Top Sources */}
                 <div className="bg-card border border-border rounded-xl p-6">
-                    <h3 className="text-sm font-bold uppercase tracking-wider text-primary mb-4">📰 Top 10 Sources</h3>
+                    <h3 className="text-sm font-bold uppercase tracking-wider text-primary mb-1">📰 Top 10 Sources</h3>
+                    <p className="text-[10px] text-muted-foreground mb-4">Les médias qui contribuent le plus à votre flux. Utile pour identifier les sources les plus actives ou à diversifier.</p>
                     <div className="space-y-2">
                         {data.topSources.map((src, i) => (
                             <div key={src.name} className="flex items-center gap-3">
@@ -241,9 +245,10 @@ export function AnalyticsDashboard() {
 
             {/* Health Check */}
             <div className="bg-card border border-border rounded-xl p-6">
-                <h3 className="text-sm font-bold uppercase tracking-wider text-primary mb-4 flex items-center gap-2">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-primary mb-1 flex items-center gap-2">
                     ⚡ Health Check
                 </h3>
+                <p className="text-[10px] text-muted-foreground mb-4">Indicateurs de santé du pipeline : fraîcheur des données, efficacité du filtrage et taux de conversion vers la publication.</p>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="p-4 bg-secondary/20 rounded-lg">
                         <div className="text-xs text-muted mb-1">Dernière Ingestion</div>
