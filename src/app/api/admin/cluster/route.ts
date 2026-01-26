@@ -28,7 +28,10 @@ export async function GET(request: Request) {
             id: a.id,
             title: a.title,
             source: a.source_name,
+            source_name: a.source_name, // Explicit mapping for key consistency
             url: a.source_url,
+            source_url: a.source_url,
+            published_at: a.published_at,
             score: a.final_score
         }));
 

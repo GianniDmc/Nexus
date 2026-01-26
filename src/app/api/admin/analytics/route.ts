@@ -47,18 +47,15 @@ export async function GET() {
             .select('*', { count: 'exact', head: true })
             .gte('created_at', oneWeekAgo.toISOString());
 
-        // 2. Category Distribution (from Summaries or Clusters? Using Articles for now as fallback, but ideally Summaries)
-        // Note: category on articles might be raw RSS category. Summaries don't have category column yet?
-        // Let's stick to articles for category for now, or use clusters if they have it.
-        // Assuming articles.category is populated.
+        // 2. Category Distribution (from Clusters)
         const { data: categoryData } = await supabase
-            .from('articles')
-            .select('category');
-        // .eq('is_published', true); // No longer applies to articles directly
+            .from('clusters')
+            .select('category')
+            .not('category', 'is', null);
 
         const categoryMap: Record<string, number> = {};
-        categoryData?.forEach((a) => {
-            const cat = a.category || 'Non classé';
+        categoryData?.forEach((c) => {
+            const cat = c.category || 'Non classé';
             categoryMap[cat] = (categoryMap[cat] || 0) + 1;
         });
         const categories = Object.entries(categoryMap)
@@ -71,20 +68,14 @@ export async function GET() {
             .select('final_score')
             .not('final_score', 'is', null);
 
-        const scoreBuckets = [
-            { range: '0-2', count: 0 },
-            { range: '3-4', count: 0 },
-            { range: '5-6', count: 0 },
-            { range: '7-8', count: 0 },
-            { range: '9-10', count: 0 },
-        ];
+        // Initialize 0-10 buckets
+        const scoreBuckets = Array.from({ length: 11 }, (_, i) => ({ range: i.toString(), count: 0 }));
+
         scoreData?.forEach((c) => {
-            const score = c.final_score || 0;
-            if (score <= 2) scoreBuckets[0].count++;
-            else if (score <= 4) scoreBuckets[1].count++;
-            else if (score <= 6) scoreBuckets[2].count++;
-            else if (score <= 8) scoreBuckets[3].count++;
-            else scoreBuckets[4].count++;
+            let score = Math.round(c.final_score || 0);
+            if (score < 0) score = 0;
+            if (score > 10) score = 10;
+            scoreBuckets[score].count++;
         });
 
         // 4. Top Sources
@@ -121,24 +112,57 @@ export async function GET() {
             ? (Object.values(clusterSizeMap).reduce((a, b) => a + b, 0) / Object.values(clusterSizeMap).length).toFixed(1)
             : 0;
 
-        // 6. Recent Activity (articles per day for last 7 days)
+        // 6. Recent Activity (30 days daily) - PUBLICATIONS (Clusters)
         const dailyActivity: { date: string; count: number }[] = [];
-        for (let i = 6; i >= 0; i--) {
-            const dayStart = new Date(now);
-            dayStart.setDate(dayStart.getDate() - i);
-            dayStart.setHours(0, 0, 0, 0);
-            const dayEnd = new Date(dayStart);
-            dayEnd.setHours(23, 59, 59, 999);
+        const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-            const { count } = await supabase
-                .from('articles')
-                .select('*', { count: 'exact', head: true })
-                .gte('created_at', dayStart.toISOString())
-                .lte('created_at', dayEnd.toISOString());
+        const { data: last30dClusters } = await supabase
+            .from('clusters')
+            .select('published_on')
+            .eq('is_published', true)
+            .gte('published_on', thirtyDaysAgo.toISOString());
 
+        const dailyMap: Record<string, number> = {};
+        last30dClusters?.forEach(c => {
+            if (!c.published_on) return;
+            const dateKey = new Date(c.published_on).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
+            dailyMap[dateKey] = (dailyMap[dateKey] || 0) + 1;
+        });
+
+        for (let i = 29; i >= 0; i--) {
+            const d = new Date(now);
+            d.setDate(d.getDate() - i);
+            const key = d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
             dailyActivity.push({
-                date: dayStart.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' }),
-                count: count || 0,
+                date: key,
+                count: dailyMap[key] || 0
+            });
+        }
+
+        // 7. Hourly Activity (72h) - PUBLICATIONS (Clusters)
+        const hourlyActivity: { time: string; count: number }[] = [];
+        const seventyTwoHoursAgo = new Date(now.getTime() - 72 * 60 * 60 * 1000);
+
+        const { data: last72hClusters } = await supabase
+            .from('clusters')
+            .select('published_on')
+            .eq('is_published', true)
+            .gte('published_on', seventyTwoHoursAgo.toISOString());
+
+        const hourlyMap: Record<string, number> = {};
+        last72hClusters?.forEach(c => {
+            if (!c.published_on) return;
+            const dateObj = new Date(c.published_on);
+            const key = `${dateObj.getDate()}/${dateObj.getMonth() + 1} ${dateObj.getHours()}h`;
+            hourlyMap[key] = (hourlyMap[key] || 0) + 1;
+        });
+
+        for (let i = 71; i >= 0; i--) {
+            const d = new Date(now.getTime() - i * 60 * 60 * 1000);
+            const key = `${d.getDate()}/${d.getMonth() + 1} ${d.getHours()}h`;
+            hourlyActivity.push({
+                time: key,
+                count: hourlyMap[key] || 0
             });
         }
 
@@ -168,6 +192,7 @@ export async function GET() {
                 avgSize: avgClusterSize,
             },
             dailyActivity,
+            hourlyActivity,
             health: {
                 lastIngestion: lastArticle?.created_at || null,
                 lastSource: lastArticle?.source_name || null,

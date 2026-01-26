@@ -31,7 +31,24 @@ interface AIOverrideConfig {
   preferredProvider?: 'auto' | 'openai' | 'anthropic' | 'gemini';
 }
 
+// Helper: Normalize Source Category to AI Category
+function normalizeCategory(sourceCategory: string | null): string {
+  if (!sourceCategory) return 'Général';
+
+  const mapping: Record<string, string> = {
+    'Tech News': 'Général',
+    'Apple': 'Mobile',
+    'Smartphones': 'Mobile',
+  };
+
+  return mapping[sourceCategory] || sourceCategory;
+}
+
 export async function POST(req: NextRequest) {
+  // ... (rest of the file remains unchanged until the usage point)
+
+  // ... inside the clustering loop ...
+
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -152,7 +169,7 @@ export async function POST(req: NextRequest) {
       if ((step === 'clustering' || step === 'all') && isTimeSafelyRemaining() && !results.stopped) {
         const { data: needsClustering } = await supabase
           .from('articles')
-          .select('id, title, embedding, published_at')
+          .select('id, title, embedding, published_at, category')
           .not('embedding', 'is', null)
           .is('cluster_id', null)
           .limit(processingLimit); // Use updated limit
@@ -179,7 +196,10 @@ export async function POST(req: NextRequest) {
             } else {
               const { data: newCluster } = await supabase
                 .from('clusters')
-                .insert({ label: article.title })
+                .insert({
+                  label: article.title,
+                  category: normalizeCategory(article.category) // Normalize category
+                })
                 .select()
                 .single();
               if (newCluster) {
@@ -372,9 +392,10 @@ export async function POST(req: NextRequest) {
                   await supabase.from('clusters').update({
                     is_published: true,
                     last_processed_at: new Date().toISOString(),
-                    published_on: todayDate,
+                    published_on: new Date().toISOString(),
                     label: rewritten.title,
-                    image_url: topArticle.image_url
+                    image_url: topArticle.image_url,
+                    category: rewritten.category // Save the AI category
                   }).eq('id', clusterId);
 
                   results.rewritten++;
