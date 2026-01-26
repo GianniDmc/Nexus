@@ -10,28 +10,34 @@ Ce document recense les améliorations techniques et fonctionnelles prévues pou
 
 ## 🔮 Améliorations Futures (Backlog)
 
-### 1. Live Cluster Updates (Mise à jour incrémentale)
+### 1. Dynamic Throughput Tuning
+**Objectif** : Ajuster dynamiquement le débit de traitement (items par batch) en fonction du volume d'ingestion réel, pour optimiser les coûts et la latence.
+- Si volume ingestion faible : Réduire le batch size (ex: 5-10) pour économiser les appels et réduire le bruit.
+- Si volume ingestion élevé (Breaking News) : Augmenter automatiquement le batch size (ex: 50+) et la fréquence de "Processing" pour absorber le pic.
+- Monitoring du "Backlog Size" pour déclencher le mode Turbo automatiquement.
+
+### 2. Live Cluster Updates (Mise à jour incrémentale)
 **Problème** : Actuellement, une fois qu'un cluster est publié (article synthétisé), il est "verrouillé". Si une nouvelle source majeure (ex: TechCrunch) publie une info cruciale 1 heure plus tard, elle rejoint le cluster mais le résumé en ligne n'est pas mis à jour.
 **Solution** :
 - Détecter l'ajout d'un article à fort score (> 7/10) dans un cluster déjà publié.
 - Déclencher une nouvelle synthèse (Rewrite) incluant cette nouvelle source.
 - Mettre à jour l'article publié avec mention "Mise à jour".
 
-### 2. Advanced Consensus Scoring
+### 3. Advanced Consensus Scoring
 **Problème** : Le scoring est individuel. Un article clickbait ou mal interprété par l'IA peut obtenir une bonne note isolée et déclencher une publication non méritée.
 **Solution** :
 - Ne pas se fier à une seule note.
 - Calculer un "Score de Cluster" basés sur la moyenne pondérée des 3 meilleurs articles du groupe.
 - Si le cluster ne contient qu'un seul article, appliquer une pénalité ou une vérification plus stricte.
 
-### 3. Sources Management
+### 4. Sources Management
 - Ajouter une interface pour gérer/bannir des sources RSS directement depuis l'admin (actuellement hardcodé ou en base).
 - Pondération des sources (ex: donner plus de poids à une source réputée comme "The Verge" vs un blog inconnu).
 
-### 4. Newsletter Automation
+### 5. Newsletter Automation
 - Générer automatiquement une newsletter hebdomadaire basée sur les "Top Clusters" de la semaine.
 
-### 5. Clustering de Précision (V2)
+### 6. Clustering de Précision (V2)
 **Problème** : La similarité vectorielle (Cosinus) regroupe bien par *thème* (ex: "Intelligence Artificielle") mais peine à distinguer deux *événements distincts* proches sémantiquement (ex: "Sortie de GPT-5" et "Sortie de Claude 4").
 
 **Solutions Roadmap** :
@@ -45,7 +51,7 @@ Ce document recense les améliorations techniques et fonctionnelles prévues pou
 
 **Impact** : Élimination quasi-totale des clusters "Fourre-Tout".
 
-### 6. Mode Local (LLM on-device)
+### 7. Mode Local (LLM on-device)
 **Objectif** : Utiliser un modèle local quand l'app tourne en développement pour économiser les appels API.
 
 **Configuration cible** :
