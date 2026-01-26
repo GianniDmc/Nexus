@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { PUBLICATION_RULES } from '@/lib/publication-rules';
 
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -14,23 +15,29 @@ export async function GET(request: Request) {
         const status = searchParams.get('status') || 'all';
         const search = searchParams.get('search') || '';
 
-        // Query CLUSTERS with explicit foreign key for articles count
+        // Query CLUSTERS with explicit foreign key for articles count AND summary
         let query = supabase
             .from('clusters')
-            .select('*, articles:articles!articles_cluster_id_fkey(count)', { count: 'estimated' });
+            .select(`
+                *,
+                articles:articles!articles_cluster_id_fkey(count),
+                summary:summaries!summaries_cluster_id_fkey(*)
+            `, { count: 'estimated' });
 
         // Apply Status Filters
         if (status === 'relevant') {
-            query = query.gte('final_score', 6);
+            query = query.gte('final_score', PUBLICATION_RULES.PUBLISH_THRESHOLD);
         } else if (status === 'low_score') {
-            query = query.lt('final_score', 6).not('final_score', 'is', null);
+            query = query.lt('final_score', PUBLICATION_RULES.PUBLISH_THRESHOLD).not('final_score', 'is', null);
         } else if (status === 'pending') {
             query = query.is('final_score', null);
         } else if (status === 'ready') {
-            // Ready = Scored, Rewritten (Summary exists) & Not Published
-            query = query.gte('final_score', 6)
-                .eq('is_published', false)
-                .not('summary_short', 'is', null);
+            // Ready = Scored >= Threshold, Not Published. 
+            // We apply Score + Published limit used by Cron here. 
+            // Additional checks (Maturity, Sources, Summary) are safer done as post-filter 
+            // because of JOIN complexities with Supabase simple filters.
+            query = query.gte('final_score', PUBLICATION_RULES.PUBLISH_THRESHOLD)
+                .eq('is_published', false);
         } else if (status === 'published') {
             query = query.eq('is_published', true);
         }
@@ -44,7 +51,11 @@ export async function GET(request: Request) {
 
         // Fix sort field mapping
         let sortField = sort;
-        if (sort === 'published_at') sortField = 'created_at';
+        // if (sort === 'published_at') sortField = 'created_at'; // REMOVED to allow sorting by published_on/published_at if column exists
+        // actually column is 'published_on' in DB, 'created_at' for cluster.
+        // UI sends 'created_at' mostly. If UI sends 'published_on', we use it.
+        // We verify the column exists to avoid SQL injection/errors, but Supabase query builder handles column names safely mostly if valid.
+        // Let's just allow it passing through.
 
         const isManualSort = sortField === 'cluster_size';
 
@@ -65,8 +76,33 @@ export async function GET(request: Request) {
         let clusters = data?.map((c: any) => ({
             ...c,
             title: c.label,
-            cluster_size: c.articles?.[0]?.count || 0
+            cluster_size: c.articles?.[0]?.count || 0,
+            summary_short: c.summary ? JSON.stringify({
+                title: c.summary.title,
+                tldr: c.summary.content_tldr,
+                full: c.summary.content_full
+            }) : null,
+            published_on: c.published_on
         })) || [];
+
+        // Strict Post-Filter for 'ready' status
+        if (status === 'ready') {
+            const now = Date.now();
+            const maturityMillis = PUBLICATION_RULES.CLUSTER_MATURITY_HOURS * 60 * 60 * 1000;
+            const minSources = PUBLICATION_RULES.MIN_SOURCES;
+
+            clusters = clusters.filter((c: any) => {
+                // 1. Must have summary
+                if (!c.summary_short) return false;
+                // 2. Min Sources
+                if (c.cluster_size < minSources) return false;
+                // 3. Maturity
+                const age = now - new Date(c.created_at).getTime();
+                if (age < maturityMillis) return false;
+
+                return true;
+            });
+        }
 
         // Manual Sort & Pagination (if cluster_size)
         if (isManualSort) {

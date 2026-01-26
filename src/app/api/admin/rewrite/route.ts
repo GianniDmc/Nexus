@@ -9,67 +9,64 @@ const supabase = createClient(
 
 export async function POST(request: Request) {
     try {
-        const { id } = await request.json();
+        const { id } = await request.json(); // id is clusterId
 
         if (!id) {
-            return NextResponse.json({ error: 'ID required' }, { status: 400 });
+            return NextResponse.json({ error: 'Cluster ID required' }, { status: 400 });
         }
 
-        // 1. Get the article to check its cluster_id
-        const { data: article, error: fetchError } = await supabase
+        // 1. Fetch Cluster Articles
+        const { data: articles, error: fetchError } = await supabase
             .from('articles')
-            .select('cluster_id, title, content, source_name')
-            .eq('id', id)
-            .single();
+            .select('id, title, content, source_name, final_score, image_url')
+            .eq('cluster_id', id)
+            .order('final_score', { ascending: false });
 
-        if (fetchError || !article) {
-            return NextResponse.json({ error: 'Article not found' }, { status: 404 });
+        if (fetchError || !articles || articles.length === 0) {
+            return NextResponse.json({ error: 'Articles not found for this cluster' }, { status: 404 });
         }
 
-        let clusterId = article.cluster_id;
-        let sources = [];
-
-        if (clusterId) {
-            // 2. Fetch all articles in the cluster to be used as sources
-            const { data: clusterArticles } = await supabase
-                .from('articles')
-                .select('title, content, source_name')
-                .eq('cluster_id', clusterId);
-
-            sources = clusterArticles || [article];
-        } else {
-            // Treat single article as the source
-            sources = [article];
-        }
-
-        // 3. Trigger Rewrite
-        const rewritten = await rewriteArticle(sources);
+        // 2. Trigger Rewrite
+        const rewritten = await rewriteArticle(articles);
 
         if (!rewritten) {
             throw new Error("AI Rewrite failed");
         }
 
-        // 4. Update the article with the new content
-        // We update the TARGET article ID provided in the request
+        // 3. Save to Summaries & Update Cluster
         const todayDate = new Date().toISOString().slice(0, 10);
+        const topArticle = articles[0]; // Best article for image/metadata linkage
 
-        await supabase.from('articles').update({
+        // Upsert Summary
+        const { error: summaryError } = await supabase.from('summaries').upsert({
+            cluster_id: id,
             title: rewritten.title,
-            summary_short: JSON.stringify({
-                tldr: rewritten.tldr,
-                full: rewritten.content,
-                analysis: rewritten.impact,
-                isFullSynthesis: true,
-                sourceCount: sources.length
-            }),
-            is_published: true, // Auto publish on manual rewrite? Yes, likely intended.
-            published_on: todayDate,
-            final_score: 8 // Force high score
+            content_tldr: rewritten.tldr,
+            content_analysis: rewritten.impact,
+            content_full: rewritten.content,
+            image_url: topArticle.image_url,
+            source_count: articles.length,
+            model_name: 'admin-manual'
+        }, { onConflict: 'cluster_id' });
+
+        if (summaryError) throw summaryError;
+
+        // Update Cluster Status
+        const { error: clusterError } = await supabase.from('clusters').update({
+            is_published: true, // Auto publish
+            label: rewritten.title,
+            image_url: topArticle.image_url,
+            published_on: new Date().toISOString(),
+            final_score: 9, // Force high score so it stays in "Relevant" lists
+            last_processed_at: new Date().toISOString()
         }).eq('id', id);
+
+        if (clusterError) throw clusterError;
 
         return NextResponse.json({ success: true, rewritten });
 
     } catch (error: any) {
+        console.error("Rewrite API Error:", error);
         return NextResponse.json({ error: error.message }, { status: 500 });
     }
 }

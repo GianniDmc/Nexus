@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { Search, Filter, Trash2, CheckCircle, XCircle, MoreHorizontal, ExternalLink, Loader2, Bot, Sparkles, Layers, X, ArrowUpDown, FileText } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import { PUBLICATION_RULES } from '@/lib/publication-rules';
 
 interface Cluster {
     id: string;
@@ -14,6 +15,7 @@ interface Cluster {
     cluster_size: number;
     is_published: boolean;
     image_url?: string;
+    published_on?: string;
 }
 
 interface ClusterArticle {
@@ -102,10 +104,23 @@ export function ArticleManager() {
             if (action === 'delete') {
                 await fetch(`/api/admin/articles?id=${id}`, { method: 'DELETE' });
             } else if (action === 'publish') {
-                await fetch('/api/admin/articles', {
-                    method: 'PATCH',
-                    body: JSON.stringify({ id, updates: { final_score: 9, is_published: true } }) // Force high score
-                });
+                const cluster = clusters.find(c => c.id === id);
+                // Smart Publish: If no summary, generate it first
+                if (cluster && !cluster.summary_short) {
+                    if (!confirm("Ce sujet n'a pas de synthèse. Générer et publier maintenant ? (env. 30s)")) return;
+                    setIsRewriting(id); // Show spinner
+                    await fetch('/api/admin/rewrite', {
+                        method: 'POST',
+                        body: JSON.stringify({ id })
+                    });
+                    setIsRewriting(null);
+                } else {
+                    // Standard Publish (Toggle)
+                    await fetch('/api/admin/articles', {
+                        method: 'PATCH',
+                        body: JSON.stringify({ id, updates: { final_score: 9, is_published: true } })
+                    });
+                }
             } else if (action === 'reject') {
                 await fetch('/api/admin/articles', {
                     method: 'PATCH',
@@ -202,7 +217,7 @@ export function ArticleManager() {
         'all': 'Tous',
         'published': 'Publiés',
         'ready': 'Prêts à publier',
-        'relevant': 'Pertinents (>6)',
+        'relevant': `Pertinents (>=${PUBLICATION_RULES.PUBLISH_THRESHOLD})`,
         'low_score': 'Rejetés/Faibles',
         'pending': 'En attente'
     };
@@ -215,7 +230,12 @@ export function ArticleManager() {
                     {Object.keys(filterLabels).map(f => (
                         <button
                             key={f}
-                            onClick={() => { setFilter(f); setPage(1); }}
+                            onClick={() => {
+                                setFilter(f);
+                                setPage(1);
+                                if (f === 'published') setSortBy('published_on');
+                                else if (sortBy === 'published_on') setSortBy('created_at');
+                            }}
                             className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider whitespace-nowrap transition-colors ${filter === f
                                 ? 'bg-accent text-white shadow-md'
                                 : 'bg-background hover:bg-secondary text-muted-foreground'
@@ -258,7 +278,7 @@ export function ArticleManager() {
                             <th className="px-4 py-3 w-32 text-center cursor-pointer hover:bg-secondary/30 transition-colors" onClick={() => handleSort('cluster_size')}>
                                 <div className="flex items-center justify-center gap-1">Sources <ArrowUpDown className="w-3 h-3 text-muted" /></div>
                             </th>
-                            <th className="px-4 py-3 w-32 cursor-pointer hover:bg-secondary/30 transition-colors" onClick={() => handleSort('created_at')}>
+                            <th className="px-4 py-3 w-32 cursor-pointer hover:bg-secondary/30 transition-colors" onClick={() => handleSort(filter === 'published' ? 'published_on' : 'created_at')}>
                                 <div className="flex items-center gap-1">Date <ArrowUpDown className="w-3 h-3 text-muted" /></div>
                             </th>
                             <th className="px-4 py-3 w-48 text-right">Actions</th>
@@ -288,7 +308,7 @@ export function ArticleManager() {
                                         />
                                     </td>
                                     <td className="px-4 py-3">
-                                        <span className={`inline-block px-2 py-1 rounded text-xs font-bold ${(cluster.final_score || 0) >= 6
+                                        <span className={`inline-block px-2 py-1 rounded text-xs font-bold ${(cluster.final_score || 0) >= PUBLICATION_RULES.PUBLISH_THRESHOLD
                                             ? 'bg-green-500/10 text-green-500'
                                             : (cluster.final_score === null)
                                                 ? 'bg-yellow-500/10 text-yellow-500'
@@ -324,7 +344,21 @@ export function ArticleManager() {
                                         </button>
                                     </td>
                                     <td className="px-4 py-3 text-muted text-xs whitespace-nowrap">
-                                        {formatDistanceToNow(new Date(cluster.created_at), { addSuffix: true, locale: fr })}
+                                        {cluster.is_published && cluster.published_on
+                                            ? (
+                                                <div className="flex flex-col">
+                                                    <span title="Date de publication" className="text-green-600 font-medium">
+                                                        {new Date(cluster.published_on).toLocaleString('fr-FR', {
+                                                            day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
+                                                        })}
+                                                    </span>
+                                                    <span className="text-[10px] text-muted-foreground">
+                                                        {formatDistanceToNow(new Date(cluster.published_on), { addSuffix: true, locale: fr })}
+                                                    </span>
+                                                </div>
+                                            )
+                                            : <span title="Date de découverte (Cluster)">{formatDistanceToNow(new Date(cluster.created_at), { addSuffix: true, locale: fr })}</span>
+                                        }
                                     </td>
                                     <td className="px-4 py-3 text-right">
                                         <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -447,7 +481,9 @@ export function ArticleManager() {
                                                 <div key={a.id} className="p-3 bg-secondary/20 rounded-lg border border-border/50">
                                                     <h4 className="font-medium text-sm mb-1">{a.title}</h4>
                                                     <div className="flex justify-between items-center text-xs text-muted">
-                                                        <span>{a.source_name} • {new Date(a.published_at).toLocaleDateString()}</span>
+                                                        <span>
+                                                            {a.source_name} • {a.published_at ? new Date(a.published_at).toLocaleDateString() : 'Date inconnue'}
+                                                        </span>
                                                         <a href={a.source_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-accent hover:underline">
                                                             Lire <ExternalLink className="w-3 h-3" />
                                                         </a>

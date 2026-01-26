@@ -24,6 +24,7 @@ interface AnalyticsData {
     topSources: { name: string; count: number }[];
     clusters: { total: number; multiArticle: number; avgSize: string };
     dailyActivity: { date: string; count: number }[];
+    hourlyActivity: { time: string; count: number }[];
     health: { lastIngestion: string | null; lastSource: string | null };
 }
 
@@ -128,30 +129,56 @@ export function AnalyticsDashboard() {
                 </div>
             </div>
 
-            {/* Charts Row 1 */}
+            <div className="bg-card border border-border rounded-xl p-6">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-primary mb-1 flex items-center gap-2">
+                    <Activity className="w-4 h-4 text-accent" /> Pulse (72h)
+                </h3>
+                <p className="text-[10px] text-muted-foreground mb-4">Rythme de publication (Articles générés) heure par heure sur les 3 derniers jours.</p>
+                <div className="h-48">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={data.hourlyActivity}>
+                            <defs>
+                                <linearGradient id="colorPulse" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
+                                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                                </linearGradient>
+                            </defs>
+                            <XAxis dataKey="time" tick={{ fontSize: 9 }} interval={6} stroke="#666" />
+                            <YAxis tick={{ fontSize: 10 }} stroke="#666" />
+                            <Tooltip
+                                contentStyle={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 8 }}
+                                labelStyle={{ color: '#fff' }}
+                            />
+                            <Area type="monotone" dataKey="count" stroke="#3b82f6" fill="url(#colorPulse)" strokeWidth={2} />
+                        </AreaChart>
+                    </ResponsiveContainer>
+                </div>
+            </div>
+
+            {/* Charts Grid: Trend + Scores */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Daily Activity */}
+                {/* Trend 30d (Daily) */}
                 <div className="bg-card border border-border rounded-xl p-6">
                     <h3 className="text-sm font-bold uppercase tracking-wider text-primary mb-1 flex items-center gap-2">
-                        <Activity className="w-4 h-4 text-accent" /> Activité (7 derniers jours)
+                        <Activity className="w-4 h-4 text-green-500" /> Tendance (30 jours)
                     </h3>
-                    <p className="text-[10px] text-muted-foreground mb-4">Nombre d'articles ingérés par jour depuis vos flux RSS. Un pic indique une forte actualité ou un nouveau flux ajouté.</p>
+                    <p className="text-[10px] text-muted-foreground mb-4">Volume quotidien d'articles publiés sur le dernier mois.</p>
                     <div className="h-48">
                         <ResponsiveContainer width="100%" height="100%">
                             <AreaChart data={data.dailyActivity}>
                                 <defs>
-                                    <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
+                                    <linearGradient id="colorTrend" x1="0" y1="0" x2="0" y2="1">
                                         <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3} />
                                         <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
                                     </linearGradient>
                                 </defs>
-                                <XAxis dataKey="date" tick={{ fontSize: 10 }} stroke="#666" />
+                                <XAxis dataKey="date" tick={{ fontSize: 9 }} minTickGap={15} stroke="#666" />
                                 <YAxis tick={{ fontSize: 10 }} stroke="#666" />
                                 <Tooltip
                                     contentStyle={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 8 }}
                                     labelStyle={{ color: '#fff' }}
                                 />
-                                <Area type="monotone" dataKey="count" stroke="#22c55e" fill="url(#colorCount)" strokeWidth={2} />
+                                <Area type="monotone" dataKey="count" stroke="#22c55e" fill="url(#colorTrend)" strokeWidth={2} />
                             </AreaChart>
                         </ResponsiveContainer>
                     </div>
@@ -167,12 +194,52 @@ export function AnalyticsDashboard() {
                                 <XAxis dataKey="range" tick={{ fontSize: 10 }} stroke="#666" />
                                 <YAxis tick={{ fontSize: 10 }} stroke="#666" />
                                 <Tooltip
+                                    cursor={{ fill: 'rgba(255,255,255,0.05)' }}
                                     contentStyle={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 8 }}
                                     labelStyle={{ color: '#fff' }}
                                 />
-                                <Bar dataKey="count" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                                <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                                    {data.scoreDistribution.map((entry, index) => {
+                                        let color = '#ef4444'; // Red for low
+                                        if (index >= 5 && index < 8) color = '#f59e0b'; // Yellow for mid
+                                        if (index >= 8) color = '#22c55e'; // Green for high
+                                        return <Cell key={`cell-${index}`} fill={color} />;
+                                    })}
+                                </Bar>
                             </BarChart>
                         </ResponsiveContainer>
+                    </div>
+                </div>
+            </div>
+
+            {/* Health Check */}
+            <div className="bg-card border border-border rounded-xl p-6">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-primary mb-1 flex items-center gap-2">
+                    ⚡ Health Check
+                </h3>
+                <p className="text-[10px] text-muted-foreground mb-4">Indicateurs de santé du pipeline : fraîcheur des données, efficacité du filtrage et taux de conversion vers la publication.</p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="p-4 bg-secondary/20 rounded-lg">
+                        <div className="text-xs text-muted mb-1">Dernière Ingestion</div>
+                        <div className="font-medium text-primary">
+                            {data.health.lastIngestion
+                                ? formatDistanceToNow(new Date(data.health.lastIngestion), { addSuffix: true, locale: fr })
+                                : 'N/A'}
+                        </div>
+                        <div className="text-[10px] text-muted mt-1">Source: {data.health.lastSource || 'N/A'}</div>
+                    </div>
+                    <div className="p-4 bg-secondary/20 rounded-lg">
+                        <div className="text-xs text-muted mb-1">Taux de Publication</div>
+                        <div className="font-medium text-green-500">
+                            {((data.content.published / data.content.total) * 100).toFixed(1)}%
+                        </div>
+                    </div>
+                    <div className="p-4 bg-secondary/20 rounded-lg">
+                        <div className="text-xs text-muted mb-1">Taux de Rejet (Clusters)</div>
+                        <div className="font-medium text-red-500">
+                            {/* Rejected Clusters / (Published + Pending + Rejected) to see strict rejection rate of SCORED clusters */}
+                            {((data.content.rejected / (data.content.published + data.content.pending + data.content.rejected)) * 100).toFixed(1)}%
+                        </div>
                     </div>
                 </div>
             </div>
@@ -243,36 +310,7 @@ export function AnalyticsDashboard() {
                 </div>
             </div>
 
-            {/* Health Check */}
-            <div className="bg-card border border-border rounded-xl p-6">
-                <h3 className="text-sm font-bold uppercase tracking-wider text-primary mb-1 flex items-center gap-2">
-                    ⚡ Health Check
-                </h3>
-                <p className="text-[10px] text-muted-foreground mb-4">Indicateurs de santé du pipeline : fraîcheur des données, efficacité du filtrage et taux de conversion vers la publication.</p>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="p-4 bg-secondary/20 rounded-lg">
-                        <div className="text-xs text-muted mb-1">Dernière Ingestion</div>
-                        <div className="font-medium text-primary">
-                            {data.health.lastIngestion
-                                ? formatDistanceToNow(new Date(data.health.lastIngestion), { addSuffix: true, locale: fr })
-                                : 'N/A'}
-                        </div>
-                        <div className="text-[10px] text-muted mt-1">Source: {data.health.lastSource || 'N/A'}</div>
-                    </div>
-                    <div className="p-4 bg-secondary/20 rounded-lg">
-                        <div className="text-xs text-muted mb-1">Taux de Publication</div>
-                        <div className="font-medium text-green-500">
-                            {((data.content.published / data.content.total) * 100).toFixed(1)}%
-                        </div>
-                    </div>
-                    <div className="p-4 bg-secondary/20 rounded-lg">
-                        <div className="text-xs text-muted mb-1">Taux de Rejet</div>
-                        <div className="font-medium text-red-500">
-                            {((data.content.rejected / data.content.total) * 100).toFixed(1)}%
-                        </div>
-                    </div>
-                </div>
-            </div>
+
         </div>
     );
 }

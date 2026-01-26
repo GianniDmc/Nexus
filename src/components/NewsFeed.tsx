@@ -93,7 +93,7 @@ export default function NewsFeed() {
           })
           .map(cluster => {
             const summary = Array.isArray(cluster.summaries) ? cluster.summaries[0] : cluster.summaries;
-            const category = (cluster.representative_article as any)?.category || 'General';
+            const category = cluster.category || (cluster.representative_article as any)?.category || 'General';
 
             return {
               id: cluster.id, // Use Cluster ID as the main ID
