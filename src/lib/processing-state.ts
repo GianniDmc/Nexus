@@ -53,11 +53,12 @@ export async function startProcessing(step: string): Promise<boolean> {
     if (current.isRunning && !current.shouldStop) {
         const startDate = current.startedAt ? new Date(current.startedAt) : new Date();
         const now = new Date();
-        const hoursRunning = (now.getTime() - startDate.getTime()) / (1000 * 60 * 60);
+        const minutesRunning = (now.getTime() - startDate.getTime()) / (1000 * 60);
 
         // If it's the SAME step, we allow restart (it might be a retry loop)
         // But if it's different step, block it.
-        if (current.step !== step && hoursRunning < 24) {
+        // Auto-recover after 15 minutes of "stuck" state
+        if (current.step !== step && minutesRunning < 15) {
             console.log(`[STATE] startProcessing BLOCKED: '${current.step}' is already running`);
             return false;
         }

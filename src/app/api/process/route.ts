@@ -101,6 +101,15 @@ export async function POST(req: NextRequest) {
     stopped: false
   };
 
+  // Security: Max Duration (Vercel Free Tier = 10s default, Pro = 60s, configurable)
+  // We effectively limit to ~50s to process safely before Vercel kills the worker.
+  const MAX_EXECUTION_TIME_MS = 50000; // 50 seconds
+  const startTime = Date.now();
+
+  const isTimeSafelyRemaining = () => {
+    return (Date.now() - startTime) < MAX_EXECUTION_TIME_MS;
+  };
+
   try {
     try {
       // ═══════════════════════════════════════════════════════════════════
@@ -117,6 +126,8 @@ export async function POST(req: NextRequest) {
         if (needsEmbedding && needsEmbedding.length > 0) {
           for (const article of needsEmbedding) {
             if (await shouldStopProcessing()) { results.stopped = true; break; }
+            if (!isTimeSafelyRemaining()) { results.stopped = true; break; }
+
             try {
               const contentSnippet = article.content ? article.content.slice(0, 1000) : '';
               const textToEmbed = `${article.title}\n\n${contentSnippet}`;
@@ -138,28 +149,29 @@ export async function POST(req: NextRequest) {
       // ═══════════════════════════════════════════════════════════════════
       // STEP 2: CLUSTERING
       // ═══════════════════════════════════════════════════════════════════
-      if (step === 'clustering' || step === 'all') {
+      if ((step === 'clustering' || step === 'all') && isTimeSafelyRemaining() && !results.stopped) {
         const { data: needsClustering } = await supabase
           .from('articles')
           .select('id, title, embedding, published_at')
           .not('embedding', 'is', null)
           .is('cluster_id', null)
-          .limit(processingLimit);
+          .limit(processingLimit); // Use updated limit
 
         if (needsClustering && needsClustering.length > 0) {
           for (const article of needsClustering) {
             if (await shouldStopProcessing()) { results.stopped = true; break; }
+            if (!isTimeSafelyRemaining()) { results.stopped = true; break; }
+
             const { data: matches } = await supabase.rpc('find_similar_articles', {
               query_embedding: article.embedding,
               match_threshold: 0.75,
-              match_count: 20, // Increased from 5 to 20 to handle high volume/redundancy
+              match_count: 20,
               anchor_date: article.published_at || new Date().toISOString(),
               window_days: 7,
               exclude_id: article.id
             });
 
-            // Strategy: Prefer joining an existing cluster (even if it's the 2nd or 3rd best match)
-            // to avoid fragmentation.
+            // Strategy: Prefer joining an existing cluster
             const bestMatchWithCluster = matches?.find((m: any) => m.cluster_id);
 
             if (bestMatchWithCluster) {
@@ -182,8 +194,8 @@ export async function POST(req: NextRequest) {
       // ═══════════════════════════════════════════════════════════════════
       // STEP 3: SCORING (Cluster Centric)
       // ═══════════════════════════════════════════════════════════════════
-      if (step === 'scoring' || step === 'all') {
-        // Fetch clusters needing scoring (final_score is null)
+      if ((step === 'scoring' || step === 'all') && isTimeSafelyRemaining() && !results.stopped) {
+        // Fetch known unscored clusters
         const { data: clustersToScore, error: scoreQueryError } = await supabase
           .from('clusters')
           .select(`
@@ -207,12 +219,12 @@ export async function POST(req: NextRequest) {
 
           for (const cluster of clustersToScore) {
             if (await shouldStopProcessing()) { results.stopped = true; break; }
+            if (!isTimeSafelyRemaining()) { results.stopped = true; break; }
 
-            // Supabase typing for joined relations can be tricky, casting safely
+            // Supabase typing
             const articles = (Array.isArray(cluster.articles) ? cluster.articles : []) as any[];
 
             if (articles.length === 0) {
-              // Should not happen, but safeguard
               await supabase.from('clusters').update({ final_score: 0 }).eq('id', cluster.id);
               continue;
             }
@@ -220,16 +232,14 @@ export async function POST(req: NextRequest) {
             // New Cluster-Centric Scoring
             const evaluation = await scoreCluster(articles, effectiveConfig);
 
-            await sleep(llmDelayMs);
-
-            // Save score and representative article to Cluster
+            // Save score
             await supabase.from('clusters').update({
               final_score: evaluation.score,
               representative_article_id: evaluation.representative_id
             }).eq('id', cluster.id);
 
             results.scored++;
-            await updateProgress(results.scored, clustersToScore.length, `Scoring (${results.scored}/${clustersToScore.length})`);
+            await sleep(llmDelayMs); // Respect Rate Limit
           }
         }
       }
@@ -237,9 +247,7 @@ export async function POST(req: NextRequest) {
       // ═══════════════════════════════════════════════════════════════════
       // STEP 4: REWRITING & PUBLISHING
       // ═══════════════════════════════════════════════════════════════════
-      if (step === 'rewriting' || step === 'all') {
-        // Log start
-        // console.log(`[REWRITE] Starting rewriting step...`);
+      if ((step === 'rewriting' || step === 'all') && isTimeSafelyRemaining() && !results.stopped) {
 
         const { data: publishedClusters } = await supabase
           .from('clusters')
@@ -248,24 +256,21 @@ export async function POST(req: NextRequest) {
 
         const publishedClusterIds = new Set(publishedClusters?.map((item) => item.id));
 
-
-        // Build rewriting query - Select CLUSTERS based on THEIR score
+        // Build rewriting query
         let query = supabase
           .from('clusters')
           .select('id, final_score')
           .gte('final_score', publishThreshold)
-          .eq('is_published', false) // Only unpublished clusters
+          .eq('is_published', false) // Only unpublished
           .order('final_score', { ascending: false })
-          .limit(processingLimit * 5); // Fetch more to allow for filtering
+          .limit(processingLimit * 5);
 
         const { data: clustersToProcess } = await query;
-
         const filteredClusterIds: string[] = [];
         const freshnessCutoff = pubConfig.freshnessCutoff;
 
         if (clustersToProcess && clustersToProcess.length > 0) {
-          // Optimization: Batch fetch articles for ALL candidates to avoid N+1 DB calls
-          // This was likely causing the 50s delay (50 queries * ~1s latency)
+          // Batch fetch optimization...
           const candidateIds = clustersToProcess
             .filter(c => !publishedClusterIds.has(c.id))
             .map(c => c.id);
@@ -275,39 +280,35 @@ export async function POST(req: NextRequest) {
               .from('articles')
               .select('cluster_id, source_name, published_at')
               .in('cluster_id', candidateIds)
-              .order('published_at', { ascending: true }); // Important for age check
+              .order('published_at', { ascending: true });
 
-            // Group articles by cluster_id
             const articlesByCluster = (allArticles || []).reduce((acc, art) => {
               if (!acc[art.cluster_id]) acc[art.cluster_id] = [];
               acc[art.cluster_id].push(art);
               return acc;
             }, {} as Record<string, any[]>);
 
-            // In-memory filtering
             for (const cluster of clustersToProcess) {
               if (filteredClusterIds.length >= processingLimit) break;
               if (!candidateIds.includes(cluster.id)) continue;
 
               const clusterArticles = articlesByCluster[cluster.id] || [];
-
               if (clusterArticles.length === 0) continue;
 
-              // 1. Maturity Check
+              // Maturity Check
               if (!pubConfig.ignoreMaturity && pubConfig.maturityHours > 0) {
                 const oldestArticleDate = new Date(clusterArticles[0].published_at).getTime();
                 const maturityMillis = pubConfig.maturityHours * 60 * 60 * 1000;
-                const clusterAge = Date.now() - oldestArticleDate;
-                if (clusterAge < maturityMillis) continue; // Too young
+                if ((Date.now() - oldestArticleDate) < maturityMillis) continue;
               }
 
-              // 2. Freshness Check
+              // Freshness Check
               if (pubConfig.freshOnly) {
                 const hasFreshArticle = clusterArticles.some((a: any) => a.published_at >= freshnessCutoff);
                 if (!hasFreshArticle) continue;
               }
 
-              // 3. Min Sources Check
+              // Min Sources Check
               if (pubConfig.minSources > 1) {
                 const uniqueSources = new Set(clusterArticles.map((a: any) => a.source_name)).size;
                 if (uniqueSources < pubConfig.minSources) continue;
@@ -318,13 +319,14 @@ export async function POST(req: NextRequest) {
           }
         }
 
-
-        await updateProgress(0, filteredClusterIds.length, `Démarrage rédaction (${filteredClusterIds.length} clusters qualifiés)...`);
+        await updateProgress(0, filteredClusterIds.length, `Démarrage rédaction (${filteredClusterIds.length} clusters)...`);
 
         for (const clusterId of filteredClusterIds) {
+          if (await shouldStopProcessing()) { results.stopped = true; break; }
+          if (!isTimeSafelyRemaining()) { results.stopped = true; break; }
+
           await updateProgress(results.rewritten + 1, filteredClusterIds.length, `Rédaction (${results.rewritten + 1}/${filteredClusterIds.length})...`);
 
-          if (await shouldStopProcessing()) { results.stopped = true; break; }
 
           const { data: sources } = await supabase
             .from('articles')
@@ -340,11 +342,11 @@ export async function POST(req: NextRequest) {
               console.error(`[REWRITE ERROR] Exception during rewriteArticle:`, e);
             }
 
-            if (await shouldStopProcessing()) { results.stopped = true; break; }
+            // SAFETY CHECK: Ensure we have valid content before publishing
+            // Prevents "Empty Articles" bug
+            if (rewritten && rewritten.title && rewritten.content && rewritten.title.length > 5 && rewritten.content.length > 50) {
 
-            await sleep(llmDelayMs);
-
-            if (rewritten) {
+              // Fetch Image for top article
               const { data: topArticle } = await supabase
                 .from('articles')
                 .select('id, final_score, title, image_url')
@@ -354,7 +356,6 @@ export async function POST(req: NextRequest) {
                 .single();
 
               if (topArticle) {
-                // 1. Save synthesized content to 'summaries' table
                 const { error: insertError } = await supabase.from('summaries').upsert({
                   cluster_id: clusterId,
                   title: rewritten.title,
@@ -366,10 +367,8 @@ export async function POST(req: NextRequest) {
                   model_name: effectiveConfig?.preferredProvider || 'auto'
                 }, { onConflict: 'cluster_id' });
 
-                if (insertError) {
-                  console.error(`[DB ERROR] Failed to insert summary for cluster ${clusterId}:`, insertError);
-                } else {
-                  // 2. Update cluster metadata (status, label, image)
+                if (!insertError) {
+                  // Only mark as published if Summary insert success
                   await supabase.from('clusters').update({
                     is_published: true,
                     last_processed_at: new Date().toISOString(),
@@ -380,12 +379,12 @@ export async function POST(req: NextRequest) {
 
                   results.rewritten++;
                 }
-              } else {
-                console.warn(`[DB WARNING] Could not find top article for cluster ${clusterId}`);
               }
             } else {
-              console.warn(`[REWRITE FAILED] internal rewriteArticle returned null for cluster ${clusterId}`);
+              console.warn(`[REWRITE INVALID] Content invalid or empty for cluster ${clusterId}. Skipping publication.`);
             }
+
+            await sleep(llmDelayMs);
           }
         }
       }
@@ -407,7 +406,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: message }, { status: 500 });
     }
   } finally {
-    // ALWAYS finish processing state, even if error or return
     await finishProcessing();
   }
 }
