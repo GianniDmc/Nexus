@@ -101,9 +101,9 @@ export async function POST(req: NextRequest) {
     stopped: false
   };
 
-  // Security: Max Duration (Vercel Free Tier = 10s default, Pro = 60s, configurable)
-  // We effectively limit to ~50s to process safely before Vercel kills the worker.
-  const MAX_EXECUTION_TIME_MS = 50000; // 50 seconds
+  // Security: Max Duration (Vercel Free Tier = 10s default for API routes, but Cron can be longer)
+  // User confirmed 5 minutes available. Setting to 4m30s (270s) to be safe.
+  const MAX_EXECUTION_TIME_MS = 270000; // 4m30s
   const startTime = Date.now();
 
   const isTimeSafelyRemaining = () => {
