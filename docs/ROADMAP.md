@@ -9,6 +9,10 @@ Ce document recense les améliorations techniques et fonctionnelles prévues pou
 - [x] **Multi-Provider IA** : Interface Admin pour clés OpenAI/Anthropic/Gemini avec sélection automatique des modèles (Fast/Smart).
 - [x] **Analytics Avancés** : Tableaux de bord avec "Pulse 72h" (activité horaire), "Trend 30d" (tendance mensuelle) et Top Sources.
 - [x] **Harmonisation des Données** : Normalisation stricte des catégories (Source -> Standard IA) et migration de l'historique.
+- [x] **Pilotage IA** : AutoProcessor + étapes manuelles (ingestion, embeddings, clustering, scoring, rewriting) avec filtres dynamiques.
+- [x] **Sources** : Listing et ingestion par source depuis l'admin (lecture seule pour l'instant).
+- [x] **Similitude** : Outil admin pour tester la similarité entre deux articles.
+- [x] **Digest Quotidien** : Génération d'un digest journalier via API (table `digests`).
 
 ## 🔮 Améliorations Futures (Backlog)
 

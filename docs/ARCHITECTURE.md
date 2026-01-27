@@ -1,54 +1,98 @@
 # Nexus Curation - Architecture Technique
 
 ## 1. Vue d'ensemble du Pipeline
-Le système traite les flux RSS via un pipeline en 5 étapes séquentielles.
+Le système traite les flux RSS via un pipeline en 6 étapes. L'ingestion est un endpoint dédié, puis le processing enchaîne 4 étapes dans `/api/process`. La publication est effectuée dans l'étape de rewriting.
 
 ```mermaid
 graph TD
     A[Ingestion RSS] -->|Nouveaux Articles| B[Embedding]
     B -->|Vecteurs| C[Clustering]
     C -->|Regroupement| D[Scoring]
-    D -->|Note > 4.0| E[Rewriting]
-    E -->|Validation| F[Publication]
+    D -->|Score >= seuil| E[Rewriting]
+    E -->|Summary OK| F[Publication]
 ```
 
+### Endpoints principaux
+- **`/api/ingest`** : parse les RSS, scrape le contenu complet, ignore les articles trop anciens.
+- **`/api/process`** : pipeline séquentiel (`embedding` → `clustering` → `scoring` → `rewriting/publish`).
+- **`/api/refresh`** : enchaîne ingestion + 1–3 cycles de processing.
+- **`/api/digest`** : génère un digest à la demande à partir des articles résumés des dernières 24h.
+
 ## 2. Stratégie IA (Janvier 2026)
+Le moteur applique une stratégie **"Tiered AI"** et sélectionne automatiquement le meilleur provider disponible.
 
-Le moteur utilise une approche **"Tiered AI"** pour optimiser le rapport Coût/Performance.
+| Tâche | Tier | Modèles supportés (si clé dispo) | Fallback |
+| :--- | :--- | :--- | :--- |
+| **Scoring** | **FAST** | `gpt-5-mini` / `claude-haiku-4-5` / `gemini-3-flash-preview` | `llama-3.3-70b-versatile` (Groq) |
+| **Rewriting** | **SMART** | `gpt-5.2` / `claude-sonnet-4-5-20250929` / `gemini-3-flash-preview` | `llama-3.3-70b-versatile` (Groq) |
+| **Embeddings** | **VECTOR** | `text-embedding-004` (Gemini) | — |
 
-| Tâche | Tier | Modèle OpenAI (Éco) | Modèle Anthropic (Perf) | Google (Défaut) |
-| :--- | :--- | :--- | :--- | :--- |
-| **Scoring** (Volume) | **FAST** | `gpt-5-mini` ($0.25/1M) | `claude-haiku-4-5` ($1.00/1M) | `gemini-3-flash` |
-| **Rewriting** (Qualité) | **SMART** | `gpt-5.2` | `claude-sonnet-4-5` | `gemini-3-flash` |
+### Sélection des providers
+Ordre de priorité côté serveur :
+1. **Clés utilisateur** (UI Admin, stockées en localStorage)
+2. **Clés "payantes" d'environnement** (`PAID_*`)
+3. **Clés par défaut** (ex: `GOOGLE_API_KEY`)
+4. **Fallback Groq** (`GROQ_API_KEY`)
 
-### Batch Scoring (Optimisation Vitesse)
-Pour noter rapidement des milliers d'articles, nous utilisons le **Batch Processing** :
-- **Principe** : Envoyer plusieurs articles (Titres + Extraits) dans un seul prompt structuré.
-- **Taille du Batch** :
-  - **Mode Gratuit** : 5 articles / appel (Délai 2.5s).
-  - **Mode Turbo (Clé Payante)** : **25 articles / appel** (Délai 0.1s).
-- **Gain** : Divise le nombre de requêtes HTTP par 25 et réduit la latence totale de ~80%.
+### Mode Turbo (si clé payante)
+- **`processingLimit`** : 50 éléments par cycle (au lieu de 10)
+- **`llmDelayMs`** : 100 ms (au lieu de 2500 ms)
 
-## 3. Gestion des Processus
+## 3. Règles de Publication (centralisées)
+Définies dans `src/lib/publication-rules.ts` et réutilisées par l'admin + l'API.
+
+- **Seuil de publication** : `PUBLISH_THRESHOLD = 8.0`
+- **Sources minimum** : `MIN_SOURCES = 2`
+- **Fraîcheur** : `FRESHNESS_HOURS = 48`
+- **Maturité cluster** : `CLUSTER_MATURITY_HOURS = 6`
+- **Ingestion max age** : `INGESTION_MAX_AGE_HOURS = 720` (30 jours)
+
+Les valeurs peuvent être **surchargées** par l'admin via query/body (`freshOnly`, `minSources`, `publishThreshold`, `ignoreMaturity`).
+
+## 4. Gestion des Processus
 
 ### Shared State & Concurrency
-Le système utilise un état partagé en Base de Données (`app_state`) pour coordonner les sessions.
-- **Locking** : Un seul processus peut tourner à la fois (mutex sur `step`).
-- **Monitoring** : La progression (`current`/`total`) est synchronisée en temps réel dans la DB, permettant à tous les clients connectés (onglets) de voir l'avancement global ("Reste à traiter").
+L'état est centralisé en DB (`app_state`) pour coordonner les sessions et éviter la concurrence.
+- **Locking** : un seul process actif (mutex sur `step`).
+- **Stop/Reset** : `/api/admin/processing-state`.
+- **Progression** : `current/total/label` synchronisés pour l'UI admin.
 
-### Auto-Loop
-Le frontend gère une boucle "Infinie" qui relance le traitement tant qu'il reste des éléments :
-1. Client demande traitement (Batch de 50).
-2. Serveur traite et met à jour la DB.
-3. Client reçoit confirmation, cumule les stats locales, et relance.
+### Auto-Loop (AutoProcessor)
+Boucle automatique côté Admin :
+1. Lance l'ingestion RSS.
+2. Enchaîne `process` tant qu'il reste des éléments.
+3. Gère les erreurs 429 (backoff) et les pauses quand la file est vide.
 
-## 4. Base de Données (Supabase)
+## 5. Console Admin
+La console `/admin` centralise les opérations métiers.
 
-### Tables Clés
-- **articles** : Contient le contenu, l'embedding (vector), le `relevance_score` et la `category` (historique source).
-- **clusters** : Groupes d'articles similaires avec `label`, `summary` et `category` (vision éditoriale).
-- **app_state** : Stockage JSON pour la config, l'état d'exécution et la progression.
+- **Pilotage auto** : AutoProcessor (processing loop + rate limit management).
+- **Étapes manuelles** : déclenchement par étape, filtres (fraîcheur, sources min, score) et ingestion par source.
+- **Éditorial** : gestion des clusters (publication, rejet, suppression, rewrite manuel).
+- **Clusters** : listing multi-sources + test de similarité entre 2 articles.
+- **Analytics** : Pulse 72h, Trend 30j, top sources, distribution des scores.
+- **IA Settings** : clés temporaires (OpenAI/Anthropic/Gemini) + provider préféré.
+
+## 6. Front Public
+- **NewsFeed** : lecture des clusters publiés + summaries, filtres (date, archives, catégorie), tri score/date.
+- **Reading List** : sauvegarde locale (localStorage) + table `reading_list` prête côté DB.
+- **Articles** : pages détaillées (`/article/[id]`) et digest (`/digest/[id]`).
+
+## 7. Base de Données (Supabase)
+
+### Tables clés
+- **articles** : source brute, `content`, `summary_short` (legacy, utilisé par `/api/digest`), `image_url`, `embedding`, `category`, `cluster_id`.
+- **clusters** : agrégation éditoriale (`label`, `representative_article_id`, `final_score`, `is_published`, `published_on`, `category`, `image_url`).
+- **summaries** : contenu généré (`title`, `content_tldr`, `content_analysis`, `content_full`, `image_url`, `source_count`).
+- **sources** : catalogue RSS avec catégorie, `is_active`, `last_fetched_at`.
+- **app_state** : mutex + progression pipeline.
+- **digests** : digest quotidien JSON.
+- **reading_list** : structure prête pour future auth.
 
 ### Vecteurs
-Utilise `pgvector` pour la recherche de similarité sémantique (Deduplication et Clustering).
-- Modèle Embedding : `text-embedding-004` (Gemini) ou via OpenAI si configuré.
+`pgvector` sert à la similarité sémantique (RPC `find_similar_articles`).
+Le seuil par défaut est **0.75** avec une fenêtre de **7 jours** (l'outil admin "similarité" affiche un indicateur à **0.70**).
+
+## 8. Scripts utilitaires
+Des scripts Node.js (`scripts/`) servent aux audits et migrations ponctuelles :
+- harmonisation catégories, backfill clusters, diagnostics stats, sanity checks DB.

@@ -38,12 +38,15 @@ C'est la méthode la plus simple pour héberger du Next.js.
     | `NEXT_PUBLIC_SUPABASE_URL` | `https://tes-id.supabase.co` |
     | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `eyJhbGciOiJIUz...` |
     | `SUPABASE_SERVICE_ROLE_KEY` | `eyJhbGciOiJIUz...` (Clé secrète `service_role` trouvable dans Supabase > Settings > API) |
-    | `GROQ_API_KEY` | `gsk_...` |
-    | `GOOGLE_API_KEY` | `AIza...` |
+    | `GROQ_API_KEY` | `gsk_...` (fallback LLM) |
+    | `GOOGLE_API_KEY` | `AIza...` (embeddings + Gemini) |
+    | `PAID_OPENAI_API_KEY` | `sk-...` (optionnel, mode turbo) |
+    | `PAID_ANTHROPIC_API_KEY` | `sk-ant-...` (optionnel, mode turbo) |
+    | `PAID_GOOGLE_API_KEY` | `AIza...` (optionnel, mode turbo) |
     | `ADMIN_USER` | `admin` (ou autre) |
     | `ADMIN_PASSWORD` | `ton-mot-de-passe-complique` |
 
-    > ⚠️ **Sécurité** : `ADMIN_PASSWORD` est maintenant OBLIGATOIRE car j'ai activé la protection sur `/admin`.
+    > ⚠️ **Sécurité** : `ADMIN_PASSWORD` est OBLIGATOIRE pour accéder à `/admin` et `/api/admin` (auth Basic via middleware).
     > `SUPABASE_SERVICE_ROLE_KEY` est aussi cruciale pour que l'Admin et l'IA fonctionnent.
 
 6.  Clique sur **"Deploy"**.
@@ -56,7 +59,7 @@ Actuellement, l'application met à jour les news quand tu as l'onglet Admin ouve
 **Option 1 : cron-job.org (Gratuit & Facile)**
 1.  Crée un compte gratuit sur [cron-job.org](https://cron-job.org/).
 2.  Crée un nouveau "Cron Job".
-3.  **URL** : `https://ton-projet-vercel.app/api/process` (Remplace par ta vraie URL Vercel).
+3.  **URL** : `https://ton-projet-vercel.app/api/refresh` (ingestion + processing).
 4.  **Schedule** : Choisis "Every 15 minutes" ou "Every hour".
 5.  **Sauvegarde**.
 
@@ -78,7 +81,7 @@ Si tu préfères tout gérer dans Supabase :
       $$
       select
         net.http_get(
-            url:='https://ton-projet-vercel.app/api/process',
+            url:='https://ton-projet-vercel.app/api/refresh',
             headers:='{"Authorization": "Basic ... (si admin protégé) ou rien si public"}'
         ) as request_id;
       $$
