@@ -45,8 +45,8 @@ Le frontend gère une boucle "Infinie" qui relance le traitement tant qu'il rest
 ## 4. Base de Données (Supabase)
 
 ### Tables Clés
-- **articles** : Contient le contenu, l'embedding (vector), le `relevance_score` et le `cluster_id`.
-- **clusters** : Groupes d'articles similaires.
+- **articles** : Contient le contenu, l'embedding (vector), le `relevance_score` et la `category` (historique source).
+- **clusters** : Groupes d'articles similaires avec `label`, `summary` et `category` (vision éditoriale).
 - **app_state** : Stockage JSON pour la config, l'état d'exécution et la progression.
 
 ### Vecteurs

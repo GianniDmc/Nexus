@@ -9,6 +9,8 @@ Ce document consigne les choix techniques structurants du projet **App Curation 
 | ADR-001 | 2026-01-26 | Choix de Supabase comme Backend-as-a-Service | Validé |
 | ADR-002 | 2026-01-26 | Utilisation de pgvector pour la recherche sémantique | Validé |
 | ADR-003 | 2026-01-26 | Next.js App Router comme framework Frontend | Validé |
+| ADR-004 | 2026-01-27 | Harmonisation Stricte des Catégories (Source -> IA) | Validé |
+| ADR-005 | 2026-01-27 | Stockage de la Catégorie au niveau Cluster | Validé |
 
 ---
 
@@ -51,3 +53,35 @@ Utiliser **Next.js 14+ avec App Router**.
 ### Conséquences
 - **Positif** : React Server Components (RSC) réduisent le bundle JS client. Meilleure DX avec les Layouts imbriqués.
 - **Négatif** : Courbe d'apprentissage vs Pages Router. Écosystème de librairies encore en transition pour certaines compatibilités RSC.
+
+---
+
+## ADR-004 : Harmonisation Stricte des Catégories (Source -> IA)
+
+### Contexte
+Les flux RSS sources ont des catégories hétérogènes ("Tech News", "Apple", "Device", etc.) qui polluent l'interface et perturbent le filtrage. L'IA a besoin d'un cadre pour classer efficacement.
+
+### Décision
+- **Normalisation à l'ingestion/clustering** : Transformer à la volée les catégories sources en une liste restreinte (ex: "Apple" -> "Mobile").
+- **Migration Historique** : Mettre à jour les anciennes données pour correspondre à cette norme.
+
+### Conséquences
+- **Positif** : UX cohérente, filtres propres ("Mobile", "AI", "Startup"...). Facilite le travail de l'IA qui part d'une base saine.
+- **Négatif** : Perte de la granularité originale de la source (ex: on perd la nuance "iPhone" vs "iPad" au profit de "Mobile"), mais acceptable pour une curation généraliste.
+
+---
+
+## ADR-005 : Stockage de la Catégorie au niveau Cluster
+
+### Contexte
+Un cluster contient plusieurs articles qui peuvent avoir des catégories différentes (ex: un de "Mobile", un de "Business"). Le cluster lui-même représente le sujet synthétisé.
+
+### Décision
+Ajouter une colonne `category` à la table `clusters`.
+- **Initialisation** : Hérite de la catégorie du premier article (normalisée).
+- **Validation** : L'IA peut écraser cette catégorie lors de l'étape de "Rewriting" si le contenu le justifie.
+- **Affichage** : Le NewsFeed priorise `clusters.category`.
+
+### Conséquences
+- **Positif** : La catégorie affichée est celle du *sujet* et non d'un article au hasard. Permet une requalification éditoriale par l'IA.
+- **Négatif** : Nécessite de garder les deux colonnes (`articles.category` pour l'historique brut, `clusters.category` pour l'affichage) et de gérer la synchro.
