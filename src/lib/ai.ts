@@ -289,10 +289,10 @@ export async function generateEmbedding(text: string, apiKey?: string) {
   let model;
   if (apiKey) {
     const genAI = new GoogleGenerativeAI(apiKey);
-    model = genAI.getGenerativeModel({ model: "text-embedding-004" });
+    model = genAI.getGenerativeModel({ model: "models/gemini-embedding-001" });
   } else {
     if (!getGenAI()) return null;
-    model = getGenAI()!.getGenerativeModel({ model: "text-embedding-004" });
+    model = getGenAI()!.getGenerativeModel({ model: "models/gemini-embedding-001" });
   }
 
   const result = await model.embedContent(text);

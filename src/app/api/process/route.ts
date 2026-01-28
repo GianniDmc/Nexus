@@ -157,6 +157,7 @@ export async function POST(req: NextRequest) {
               }
             } catch (error: any) {
               if (error.message?.includes('429') || error.status === 429) throw error;
+              console.error(`[EMBED ERROR] Failed to embed article ${article.id}:`, error);
               // Skip this article on error (no updated_at column to cycle it)
             }
           }
