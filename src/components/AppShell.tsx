@@ -162,7 +162,9 @@ export function AppShell({ children }: AppShellProps) {
 
               <div className="space-y-2">
                 <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-4">Navigation</h3>
-                <SidebarLink onClick={() => setIsMobileMenuOpen(false)} href="/?filter=archives" icon={<Archive className="w-5 h-5" />} label="Archives" />
+                <Suspense fallback={<div className="h-8 bg-muted/20 rounded animate-pulse" />}>
+                  <SidebarLink onClick={() => setIsMobileMenuOpen(false)} href="/?filter=archives" icon={<Archive className="w-5 h-5" />} label="Archives" />
+                </Suspense>
                 <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
                   <span className="text-sm font-medium">Apparence</span>
                   <ThemeToggle />

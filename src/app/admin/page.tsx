@@ -54,44 +54,44 @@ export default function AdminPage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-background p-8 md:p-16">
+    <div className="min-h-screen bg-background p-4 md:p-16 pb-24 md:pb-16">
       <div className="max-w-6xl mx-auto">
-        <header className="mb-12">
-          <h1 className="text-3xl font-serif mb-4 flex items-center gap-3 text-primary">
+        <header className="mb-8 md:mb-12">
+          <h1 className="text-2xl md:text-3xl font-serif mb-6 flex items-center gap-3 text-primary">
             <Database className="text-accent" /> Salle de Rédaction Nexus
           </h1>
-          <div className="flex items-center gap-6 border-b border-border/40">
+          <div className="flex items-center gap-4 md:gap-6 border-b border-border/40 overflow-x-auto pb-1 no-scrollbar -mx-4 px-4 md:mx-0 md:px-0">
             <button
               onClick={() => setActiveTab('dashboard')}
-              className={`pb-3 text-sm font-bold uppercase tracking-wider flex items-center gap-2 border-b-2 transition-colors ${activeTab === 'dashboard' ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-primary'
+              className={`pb-3 text-xs md:text-sm font-bold uppercase tracking-wider flex items-center gap-2 border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${activeTab === 'dashboard' ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-primary'
                 }`}
             >
               <LayoutDashboard className="w-4 h-4" /> Pilotage Auto
             </button>
             <button
               onClick={() => setActiveTab('editorial')}
-              className={`pb-3 text-sm font-bold uppercase tracking-wider flex items-center gap-2 border-b-2 transition-colors ${activeTab === 'editorial' ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-primary'
+              className={`pb-3 text-xs md:text-sm font-bold uppercase tracking-wider flex items-center gap-2 border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${activeTab === 'editorial' ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-primary'
                 }`}
             >
-              <FileText className="w-4 h-4" /> Éditorial (Sujets)
+              <FileText className="w-4 h-4" /> Éditorial
             </button>
             <button
               onClick={() => setActiveTab('clusters')}
-              className={`pb-3 text-sm font-bold uppercase tracking-wider flex items-center gap-2 border-b-2 transition-colors ${activeTab === 'clusters' ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-primary'
+              className={`pb-3 text-xs md:text-sm font-bold uppercase tracking-wider flex items-center gap-2 border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${activeTab === 'clusters' ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-primary'
                 }`}
             >
               <GitBranch className="w-4 h-4" /> Clusters
             </button>
             <button
               onClick={() => setActiveTab('analytics')}
-              className={`pb-3 text-sm font-bold uppercase tracking-wider flex items-center gap-2 border-b-2 transition-colors ${activeTab === 'analytics' ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-primary'
+              className={`pb-3 text-xs md:text-sm font-bold uppercase tracking-wider flex items-center gap-2 border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${activeTab === 'analytics' ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-primary'
                 }`}
             >
               <BarChart3 className="w-4 h-4" /> Analytics
             </button>
             <button
               onClick={() => setActiveTab('ia')}
-              className={`pb-3 text-sm font-bold uppercase tracking-wider flex items-center gap-2 border-b-2 transition-colors ${activeTab === 'ia' ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-primary'
+              className={`pb-3 text-xs md:text-sm font-bold uppercase tracking-wider flex items-center gap-2 border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${activeTab === 'ia' ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-primary'
                 }`}
             >
               <Key className="w-4 h-4" /> ⚙️ IA
@@ -121,7 +121,7 @@ export default function AdminPage() {
                     {stats?.lastSync && (
                       <div className="mt-4 pt-4 border-t border-border/50 text-[10px] text-muted">
                         Dernière synchro : <br />
-                        <span className="font-mono text-foreground">{formatDistanceToNow(new Date(stats?.lastSync), { addSuffix: true, locale: fr })}</span>
+                        <span className="font-mono text-foreground">{formatDistanceToNow(new Date(stats.lastSync), { addSuffix: true, locale: fr })}</span>
                       </div>
                     )}
                   </div>
@@ -174,10 +174,10 @@ export default function AdminPage() {
                       <span className="text-accent font-bold">À Rédiger (Actionnable)</span>
                       <span className="text-accent font-bold text-lg">{stats?.pendingActionable || 0}</span>
                     </div>
-                    {stats?.pendingSkipped !== undefined && stats.pendingSkipped > 0 && (
+                    {stats && stats.pendingSkipped !== undefined && stats.pendingSkipped > 0 && (
                       <div className="flex justify-between items-center text-[10px] text-muted">
                         <span>(Doublons ignorés)</span>
-                        <span>{stats?.pendingSkipped}</span>
+                        <span>{stats.pendingSkipped}</span>
                       </div>
                     )}
                     <div className="flex justify-between items-center text-xs">
