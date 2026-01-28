@@ -21,6 +21,7 @@ Ce document recense les améliorations techniques et fonctionnelles prévues pou
 - [x] **Admin Mobile** : Correction de l'affichage du panneau d'administration sur mobile (padding, scroll horizontal).
 - [x] **Stabilité Build** : Correction des erreurs de build Vercel (Suspense sur `MobileNav`).
 - [x] **Smart Filters** : Filtres catégories dynamiques (tri par volume, compteurs contextuels) + UI compacte (Badges).
+- [x] **Gestures Mobile** : Swipe sur les articles pour Sauvegarder (droite) ou Marquer lu (gauche).
 
 ## 🔮 Améliorations Futures (Backlog)
 
