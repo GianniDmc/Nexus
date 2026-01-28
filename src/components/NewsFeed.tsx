@@ -48,12 +48,13 @@ const saveStoredSet = (key: string, set: Set<string>) => {
 
 export default function NewsFeed() {
   const searchParams = useSearchParams();
-  const filterMode = searchParams.get('filter') || 'recent'; // 'recent', 'archives', 'saved'
+  const filterMode = searchParams.get('filter') || 'today';
+  const categoryParam = searchParams.get('category'); // Get category from URL
 
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [activeCategory, setActiveCategory] = useState('Tous');
+  // Remove local activeCategory state, rely on URL
   const [sortBy, setSortBy] = useState<SortOption>('date');
 
   // User interaction states (localStorage)
@@ -153,19 +154,25 @@ export default function NewsFeed() {
     }
 
     // 1. Primary Filter (URL param)
-    if (filterMode === 'recent') {
-      result = result.filter(i => now - new Date(i.published_at).getTime() <= HOURS_48);
+    if (filterMode === 'today') {
+      result = result.filter(i => new Date(i.published_at).toDateString() === new Date().toDateString());
+    } else if (filterMode === 'yesterday') {
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      result = result.filter(i => new Date(i.published_at).toDateString() === yesterday.toDateString());
     } else if (filterMode === 'week') {
       result = result.filter(i => now - new Date(i.published_at).getTime() <= (7 * 24 * 60 * 60 * 1000));
     } else if (filterMode === 'archives') {
-      result = result.filter(i => now - new Date(i.published_at).getTime() > HOURS_48);
+      // Archives = older than 7 days
+      const lastWeek = new Date(now - 7 * 24 * 60 * 60 * 1000);
+      result = result.filter(i => new Date(i.published_at) < lastWeek);
     } else if (filterMode === 'saved') {
       result = result.filter(i => readingList.has(i.id));
     }
 
     // 2. Category filter
-    if (activeCategory !== 'Tous') {
-      result = result.filter(i => (i.category || 'Général') === activeCategory);
+    if (categoryParam) { // Use URL param
+      result = result.filter(i => (i.category || 'Général') === categoryParam);
     }
 
     // 3. Sort
@@ -176,7 +183,7 @@ export default function NewsFeed() {
     }
 
     return result;
-  }, [items, activeCategory, filterMode, sortBy, readingList, searchParams]);
+  }, [items, categoryParam, filterMode, sortBy, readingList, searchParams]);
 
   // Toggle Read Status
   const toggleReadStatus = useCallback((id: string, e?: React.MouseEvent) => {
@@ -263,6 +270,11 @@ export default function NewsFeed() {
       case 'saved': return 'Ma Liste de lecture';
       case 'week': return 'Cette Semaine';
       case 'archives': return 'Archives';
+      case 'saved': return 'Ma Liste de lecture';
+      case 'week': return 'Cette Semaine';
+      case 'archives': return 'Archives';
+      case 'today': return "Aujourd'hui";
+      case 'yesterday': return 'Hier';
       default: return 'A la une';
     }
   };
@@ -304,18 +316,32 @@ export default function NewsFeed() {
             </div>
           </div>
 
-          <div className="relative">
-            <select
-              value={activeCategory}
-              onChange={(e) => setActiveCategory(e.target.value)}
-              className="w-full appearance-none bg-secondary/40 border border-border/50 text-foreground text-xs font-medium rounded-lg pl-3 pr-8 py-2 focus:outline-none focus:border-accent/50 transition-all cursor-pointer hover:bg-secondary/50"
-            >
-              {categories.map(cat => (
-                <option key={cat} value={cat}>{cat}</option>
-              ))}
-            </select>
-            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-muted-foreground">
-              <Filter className="h-3 w-3" />
+          {/* Category Pills */}
+          <div className="overflow-x-auto custom-scrollbar pb-2 -mx-4 px-4">
+            <div className="flex items-center gap-2">
+              {categories.map(cat => {
+                const isActive = cat === 'Tous' ? !categoryParam : categoryParam === cat;
+                return (
+                  <button
+                    key={cat}
+                    onClick={() => {
+                      const params = new URLSearchParams(window.location.search);
+                      if (cat === 'Tous') params.delete('category');
+                      else params.set('category', cat);
+                      window.history.replaceState(null, '', `?${params.toString()}`);
+                    }}
+                    className={`
+                      whitespace-nowrap px-3 py-1.5 rounded-full text-[11px] font-medium transition-all border
+                      ${isActive
+                        ? 'bg-accent text-white border-accent shadow-sm'
+                        : 'bg-secondary/40 text-muted-foreground border-transparent hover:bg-secondary/60 hover:text-foreground'
+                      }
+                    `}
+                  >
+                    {cat}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>

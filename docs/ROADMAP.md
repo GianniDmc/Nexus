@@ -12,7 +12,8 @@ Ce document recense les améliorations techniques et fonctionnelles prévues pou
 - [x] **Pilotage IA** : AutoProcessor + étapes manuelles (ingestion, embeddings, clustering, scoring, rewriting) avec filtres dynamiques.
 - [x] **Sources** : Listing et ingestion par source depuis l'admin (lecture seule pour l'instant).
 - [x] **Similitude** : Outil admin pour tester la similarité entre deux articles.
-- [x] **Digest Quotidien** : Génération d'un digest journalier via API (table `digests`).
+- [x] **Refonte Cluster Management** : Interface admin avec filtres (statut), tri (date/score/volume), pagination et moteur de recherche RPC (`search_clusters`).
+- [x] **Simulation Clustering** : Outil de debug pour visualiser si un article rejoindrait un cluster existant.
 
 ## 🔮 Améliorations Futures (Backlog)
 

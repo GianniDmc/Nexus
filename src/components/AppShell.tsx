@@ -21,10 +21,20 @@ interface AppShellProps {
 
 function SidebarLink({ href, icon, label, onClick }: { href: string; icon: React.ReactNode; label: string; onClick?: () => void }) {
   const searchParams = useSearchParams();
-  const currentFilter = searchParams.get('filter') || 'recent';
-  const targetFilter = href.split('=')[1] || 'recent';
+  const currentFilter = searchParams.get('filter') || 'today';
+  const currentCategory = searchParams.get('category');
 
-  const isActive = currentFilter === targetFilter;
+  // Parse target href params
+  const targetUrl = new URL(href, 'http://dummy.com'); // dummy base for relative formatting
+  const targetFilter = targetUrl.searchParams.get('filter');
+  const targetCategory = targetUrl.searchParams.get('category');
+
+  let isActive = false;
+  if (targetCategory) {
+    isActive = currentCategory === targetCategory;
+  } else if (targetFilter) {
+    isActive = currentFilter === targetFilter;
+  }
 
   return (
     <Link
@@ -91,18 +101,22 @@ export function AppShell({ children }: AppShellProps) {
         </div>
 
         {/* Navigation Links (Wrapped in Suspense) */}
-        <nav className="flex-1 overflow-y-auto py-6 space-y-6">
+        <nav className="flex-1 overflow-y-auto py-6 space-y-8">
+          {/* TEMPS Section */}
           <div>
-            <h3 className="px-2 text-[10px] font-bold uppercase tracking-widest text-muted mb-2">À la Une</h3>
-            <Suspense fallback={<div className="animate-pulse space-y-2"><div className="h-8 bg-muted/20 rounded"></div><div className="h-8 bg-muted/20 rounded"></div></div>}>
+            <h3 className="px-2 text-[10px] font-bold uppercase tracking-widest text-muted mb-3 opacity-70">Temps</h3>
+            <Suspense fallback={<div className="animate-pulse space-y-2"><div className="h-8 bg-muted/20 rounded"></div></div>}>
               <div className="space-y-1">
-                <SidebarLink href="/?filter=recent" icon={<Sparkles className="w-4 h-4" />} label="Aujourd'hui" />
+                <SidebarLink href="/?filter=today" icon={<Sparkles className="w-4 h-4" />} label="Aujourd'hui" />
+                <SidebarLink href="/?filter=yesterday" icon={<Calendar className="w-4 h-4" />} label="Hier" />
                 <SidebarLink href="/?filter=week" icon={<Calendar className="w-4 h-4" />} label="Cette semaine" />
                 <SidebarLink href="/?filter=archives" icon={<Archive className="w-4 h-4" />} label="Archives" />
                 <SidebarLink href="/?filter=saved" icon={<Bookmark className="w-4 h-4" />} label="Ma liste" />
               </div>
             </Suspense>
           </div>
+
+
         </nav>
 
         {/* Footer / Profile */}

@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { GitBranch, ChevronDown, ChevronRight, Loader2, FlaskConical, CheckCircle, XCircle, ExternalLink, Search } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { GitBranch, ChevronDown, ChevronRight, Loader2, FlaskConical, CheckCircle, ExternalLink, Search, Filter, ChevronLeft, ListOrdered } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
@@ -17,14 +17,26 @@ interface Cluster {
 interface Article {
     id: string;
     title: string;
-    source_name: string;
+    source_name?: string;
+    source?: string;
+    url?: string;
+    score?: number;
+    published_at?: string;
 }
 
-interface SimilarityResult {
+interface SimulationResult {
+    article: Article;
+    matches: Match[];
+    decision: 'JOIN_EXISTING' | 'CREATE_CLUSTER' | 'NEW_CLUSTER';
+    targetCluster?: { id: string, label: string, article_count: number };
+}
+
+interface Match {
+    id: string;
+    title: string;
+    published_at: string;
     similarity: number;
-    wouldCluster: boolean;
-    title1: string;
-    title2: string;
+    cluster: Cluster | null;
 }
 
 // Sub-component for searchable article selection
@@ -134,31 +146,54 @@ function ArticleSearch({
 export function ClusterManager() {
     const [clusters, setClusters] = useState<Cluster[]>([]);
     const [loading, setLoading] = useState(true);
+    const [page, setPage] = useState(1);
+    const [totalPages, setTotalPages] = useState(1);
+    const [totalClusters, setTotalClusters] = useState(0);
+    const [filterStatus, setFilterStatus] = useState<'all' | 'published' | 'unpublished' | 'important'>('all');
+    const [sortBy, setSortBy] = useState<'date_desc' | 'score_desc' | 'count_desc'>('date_desc');
+    const [searchQuery, setSearchQuery] = useState('');
+    const [debouncedSearch, setDebouncedSearch] = useState('');
     const [expandedCluster, setExpandedCluster] = useState<string | null>(null);
     const [clusterArticles, setClusterArticles] = useState<Article[]>([]);
     const [loadingClusterArticles, setLoadingClusterArticles] = useState(false);
 
     // Similarity tester state
     const [selectedArticle1, setSelectedArticle1] = useState<Article | null>(null);
-    const [selectedArticle2, setSelectedArticle2] = useState<Article | null>(null);
     const [testingSimlarity, setTestingSimilarity] = useState(false);
-    const [similarityResult, setSimilarityResult] = useState<SimilarityResult | null>(null);
+    const [simulationResult, setSimulationResult] = useState<SimulationResult | null>(null);
 
+    // Debounce search
     useEffect(() => {
-        fetchClusters();
-    }, []);
+        const timer = setTimeout(() => setDebouncedSearch(searchQuery), 500);
+        return () => clearTimeout(timer);
+    }, [searchQuery]);
 
-    const fetchClusters = async () => {
+    const fetchClusters = useCallback(async () => {
+        setLoading(true);
         try {
-            const res = await fetch('/api/admin/clusters');
+            const params = new URLSearchParams({
+                page: page.toString(),
+                limit: '15',
+                status: filterStatus,
+                sort: sortBy
+            });
+            if (debouncedSearch) params.append('search', debouncedSearch);
+
+            const res = await fetch(`/api/admin/clusters?${params.toString()}`);
             const data = await res.json();
             setClusters(data.clusters || []);
+            setTotalPages(data.totalPages || 1);
+            setTotalClusters(data.total || 0);
         } catch (e) {
             console.error('Error fetching clusters', e);
         } finally {
             setLoading(false);
         }
-    };
+    }, [page, filterStatus, sortBy, debouncedSearch]);
+
+    useEffect(() => {
+        fetchClusters();
+    }, [fetchClusters]);
 
     const fetchClusterArticles = async (clusterId: string) => {
         setLoadingClusterArticles(true);
@@ -183,19 +218,19 @@ export function ClusterManager() {
         }
     };
 
-    const testSimilarity = async () => {
-        if (!selectedArticle1 || !selectedArticle2) return;
+    const simulateClustering = async () => {
+        if (!selectedArticle1) return;
         setTestingSimilarity(true);
-        setSimilarityResult(null);
+        setSimulationResult(null);
 
         try {
-            const res = await fetch('/api/admin/similarity', {
+            const res = await fetch('/api/admin/simulate-clustering', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ articleId1: selectedArticle1.id, articleId2: selectedArticle2.id })
+                body: JSON.stringify({ articleId: selectedArticle1.id })
             });
             const data = await res.json();
-            setSimilarityResult(data);
+            setSimulationResult(data);
         } catch (e) {
             console.error('Error testing similarity', e);
         } finally {
@@ -204,77 +239,111 @@ export function ClusterManager() {
     };
 
     const getScoreColor = (score: number) => {
-        if (score >= 0.8) return 'text-green-500';
-        if (score >= 0.7) return 'text-yellow-500';
+        if (score >= 0.75) return 'text-green-500';
+        if (score >= 0.6) return 'text-yellow-500';
         return 'text-red-500';
     };
 
-    if (loading) {
-        return (
-            <div className="flex items-center justify-center py-16">
-                <Loader2 className="w-8 h-8 animate-spin text-accent" />
-            </div>
-        );
-    }
+
 
     return (
         <div className="space-y-8">
-            {/* Similarity Tester */}
+            {/* Clustering Simulation */}
             <div className="bg-card border border-border rounded-xl p-6">
                 <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
                     <FlaskConical className="w-5 h-5 text-accent" />
-                    Test de Similarité
+                    Simulation de Clustering
                 </h2>
                 <p className="text-sm text-muted mb-6">
-                    Sélectionnez deux articles pour calculer leur score de similarité cosine.
+                    Sélectionnez un article pour voir comment le moteur de clustering le traiterait (rejoint un cluster existant ou en crée un nouveau).
                     <br />
                     <span className="text-xs italic opacity-70">
-                        Note: Utilise la même formule mathématique (Cosine Similarity) que le moteur de processing.
-                        L'implémentation est en TypeScript ici mais garantit le même résultat.
+                        Règles : Seuil 75% | Fenêtre 7 jours | Priorité aux clusters existants
                     </span>
                 </p>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div className="max-w-xl mb-4">
                     <ArticleSearch
-                        label="Article 1"
+                        label="Article à tester"
                         value={selectedArticle1}
                         onChange={setSelectedArticle1}
-                    />
-                    <ArticleSearch
-                        label="Article 2"
-                        value={selectedArticle2}
-                        onChange={setSelectedArticle2}
                     />
                 </div>
 
                 <button
-                    onClick={testSimilarity}
-                    disabled={!selectedArticle1 || !selectedArticle2 || testingSimlarity}
+                    onClick={simulateClustering}
+                    disabled={!selectedArticle1 || testingSimlarity}
                     className="px-6 py-2 bg-accent text-white rounded-lg font-bold text-sm disabled:opacity-50 flex items-center gap-2"
                 >
                     {testingSimlarity ? <Loader2 className="w-4 h-4 animate-spin" /> : <FlaskConical className="w-4 h-4" />}
-                    Tester
+                    Simuler le Clustering
                 </button>
 
-                {similarityResult && (
-                    <div className="mt-6 p-4 bg-secondary/50 rounded-lg border border-border">
-                        <div className="flex items-center justify-between mb-4">
-                            <span className="text-sm text-muted">Score de similarité:</span>
-                            <span className={`text-3xl font-bold ${getScoreColor(similarityResult.similarity)}`}>
-                                {(similarityResult.similarity * 100).toFixed(1)}%
-                            </span>
+                {simulationResult && (
+                    <div className="mt-6 space-y-4">
+                        {/* Decision Banner */}
+                        <div className={`p-4 rounded-lg border ${simulationResult.decision === 'JOIN_EXISTING'
+                            ? 'bg-green-500/10 border-green-500/50'
+                            : 'bg-blue-500/10 border-blue-500/50'
+                            }`}>
+                            <div className="flex items-center gap-3 mb-1">
+                                {simulationResult.decision === 'JOIN_EXISTING' ? (
+                                    <CheckCircle className="w-6 h-6 text-green-500" />
+                                ) : (
+                                    <GitBranch className="w-6 h-6 text-blue-500" />
+                                )}
+                                <span className={`text-lg font-bold ${simulationResult.decision === 'JOIN_EXISTING' ? 'text-green-500' : 'text-blue-500'
+                                    }`}>
+                                    {simulationResult.decision === 'JOIN_EXISTING'
+                                        ? 'Rejoint un cluster existant'
+                                        : 'Crée un NOUVEAU cluster'}
+                                </span>
+                            </div>
+
+                            {simulationResult.targetCluster && (
+                                <div className="ml-9 text-sm">
+                                    Rejoint le cluster : <span className="font-bold">{simulationResult.targetCluster.label}</span>
+                                    <span className="text-muted ml-2">({simulationResult.targetCluster.article_count} articles)</span>
+                                </div>
+                            )}
                         </div>
-                        <div className="flex items-center gap-2 text-sm">
-                            {similarityResult.wouldCluster ? (
-                                <>
-                                    <CheckCircle className="w-4 h-4 text-green-500" />
-                                    <span className="text-green-500">Ces articles seraient regroupés</span>
-                                </>
+
+                        {/* Matches Table */}
+                        <div className="bg-secondary/20 rounded-lg p-4 border border-border">
+                            <h3 className="text-sm font-bold text-muted mb-3 uppercase tracking-wide">
+                                Articles Similaires Trouvés ({simulationResult.matches.length})
+                            </h3>
+
+                            {simulationResult.matches.length === 0 ? (
+                                <p className="text-sm text-muted italic">Aucun article similaire trouvé (&gt; 75%) dans les 7 derniers jours.</p>
                             ) : (
-                                <>
-                                    <XCircle className="w-4 h-4 text-red-500" />
-                                    <span className="text-red-500">Ces articles NE seraient PAS regroupés</span>
-                                </>
+                                <div className="space-y-2">
+                                    {simulationResult.matches.map((match: Match) => (
+                                        <div key={match.id} className="bg-card p-3 rounded border border-border/50 flex items-center justify-between text-sm">
+                                            <div className="flex-1 min-w-0 pr-4">
+                                                <div className="font-medium truncate">{match.title}</div>
+                                                <div className="flex items-center gap-2 mt-1">
+                                                    <span className="text-xs text-muted">{formatDistanceToNow(new Date(match.published_at), { addSuffix: true, locale: fr })}</span>
+                                                    {match.cluster ? (
+                                                        <span className="text-[10px] bg-accent/10 text-accent px-1.5 py-0.5 rounded border border-accent/20">
+                                                            Cluster: {match.cluster.label}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-[10px] bg-secondary text-muted px-1.5 py-0.5 rounded">
+                                                            Sans cluster
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            <div className="shrink-0 text-right">
+                                                <div className={`font-mono font-bold ${getScoreColor(match.similarity)}`}>
+                                                    {(match.similarity * 100).toFixed(1)}%
+                                                </div>
+                                                <div className="text-[10px] text-muted">Similarité</div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
                             )}
                         </div>
                     </div>
@@ -283,17 +352,69 @@ export function ClusterManager() {
 
             {/* Clusters List */}
             <div className="bg-card border border-border rounded-xl p-6">
-                <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
-                    <GitBranch className="w-5 h-5 text-accent" />
-                    Clusters multi-sources ({clusters.filter(c => c.article_count > 1).length})
-                </h2>
-                <p className="text-xs text-muted mb-4">Affiche uniquement les clusters contenant plus d'un article.</p>
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+                    <div>
+                        <h2 className="text-lg font-bold flex items-center gap-2">
+                            <GitBranch className="w-5 h-5 text-accent" />
+                            Clusters ({totalClusters})
+                        </h2>
+                        <p className="text-xs text-muted">Gestion dynamique des clusters</p>
+                    </div>
 
-                <div className="space-y-2">
-                    {clusters.filter(c => c.article_count > 1).length === 0 ? (
-                        <p className="text-center text-muted py-8">Aucun cluster multi-sources</p>
+                    <div className="flex items-center gap-2">
+                        <div className="relative">
+                            <Search className="w-4 h-4 text-muted absolute left-3 top-1/2 -translate-y-1/2" />
+                            <input
+                                type="text"
+                                placeholder="Rechercher..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className="pl-9 pr-3 py-1.5 bg-secondary text-sm rounded-lg border border-border focus:ring-1 focus:ring-accent outline-none w-40 md:w-60"
+                            />
+                        </div>
+                        <div className="relative">
+                            <Filter className="w-4 h-4 text-muted absolute left-3 top-1/2 -translate-y-1/2" />
+                            <select
+                                value={filterStatus}
+                                onChange={(e) => {
+                                    setFilterStatus(e.target.value as 'all' | 'published' | 'unpublished' | 'important');
+                                    setPage(1);
+                                }}
+                                className="pl-9 pr-3 py-1.5 bg-secondary text-sm rounded-lg border border-border focus:ring-1 focus:ring-accent outline-none appearance-none cursor-pointer"
+                            >
+                                <option value="all">Tous les statuts</option>
+                                <option value="published">Publiés</option>
+                                <option value="unpublished">Non publiés</option>
+                                <option value="important">Importants (Score 7+)</option>
+                            </select>
+                        </div>
+                        <div className="relative">
+                            <ListOrdered className="w-4 h-4 text-muted absolute left-3 top-1/2 -translate-y-1/2" />
+                            <select
+                                value={sortBy}
+                                onChange={(e) => {
+                                    setSortBy(e.target.value as 'date_desc' | 'score_desc' | 'count_desc');
+                                    setPage(1);
+                                }}
+                                className="pl-9 pr-3 py-1.5 bg-secondary text-sm rounded-lg border border-border focus:ring-1 focus:ring-accent outline-none appearance-none cursor-pointer"
+                            >
+                                <option value="date_desc">Plus récents</option>
+                                <option value="score_desc">Meilleur score</option>
+                                <option value="count_desc">Plus d&apos;articles</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div className={`space-y-2 transition-opacity duration-200 ${loading ? 'opacity-50 pointer-events-none' : ''}`}>
+                    {loading && clusters.length === 0 ? (
+                        <div className="flex justify-center py-12">
+                            <Loader2 className="w-8 h-8 animate-spin text-accent" />
+                        </div>
+                    ) : clusters.length === 0 ? (
+                        <p className="text-center text-muted py-8">Aucun cluster trouvé</p>
                     ) : (
-                        clusters.filter(c => c.article_count > 1).map((cluster) => (
+                        clusters.map((cluster) => (
                             <div key={cluster.id} className="border border-border rounded-lg overflow-hidden">
                                 <button
                                     onClick={() => toggleCluster(cluster.id)}
@@ -339,7 +460,7 @@ export function ClusterManager() {
                                             <p className="text-center text-muted text-sm">Aucun article dans ce cluster</p>
                                         ) : (
                                             <div className="space-y-3">
-                                                {clusterArticles.map((article: any, index: number) => (
+                                                {clusterArticles.map((article: Article, index: number) => (
                                                     <div key={article.id} className="p-3 bg-card rounded-lg border border-border/50">
                                                         <div className="flex items-start justify-between gap-3">
                                                             <div className="flex-1 min-w-0">
@@ -380,6 +501,29 @@ export function ClusterManager() {
                         ))
                     )}
                 </div>
+
+                {/* Pagination */}
+                {totalPages > 1 && (
+                    <div className="flex items-center justify-center gap-4 mt-6">
+                        <button
+                            onClick={() => setPage(p => Math.max(1, p - 1))}
+                            disabled={page === 1}
+                            className="p-2 rounded hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            <ChevronLeft className="w-5 h-5" />
+                        </button>
+                        <span className="text-sm font-medium">
+                            Page {page} / {totalPages}
+                        </span>
+                        <button
+                            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                            disabled={page === totalPages}
+                            className="p-2 rounded hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            <ChevronRight className="w-5 h-5" />
+                        </button>
+                    </div>
+                )}
             </div>
         </div>
     );
