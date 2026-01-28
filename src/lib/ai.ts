@@ -295,11 +295,10 @@ export async function generateEmbedding(text: string, apiKey?: string) {
     model = getGenAI()!.getGenerativeModel({ model: "models/gemini-embedding-001" });
   }
 
-  // @ts-ignore - outputDimensionality is supported in the API but missing in the SDK types
   const result = await model.embedContent({
     content: { role: 'user', parts: [{ text }] },
     outputDimensionality: 768
-  });
+  } as any);
   return result.embedding.values;
 }
 
