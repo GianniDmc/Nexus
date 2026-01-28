@@ -23,6 +23,7 @@ Ce document consigne les choix techniques structurants du projet **App Curation 
 | ADR-015 | 2026-01-28 | Support Progressive Web App (PWA) | Validé |
 | ADR-016 | 2026-01-28 | Navigation Mobile par Bottom Bar | Validé |
 | ADR-017 | 2026-01-28 | Calcul Client-Side des Catégories et Limite Étendue | Validé |
+| ADR-018 | 2026-01-28 | Navigation Gestuelle Mobile (Triage) | Validé |
 
 ---
 
@@ -280,6 +281,25 @@ Les utilisateurs souhaitent que le compteur des catégories ("Mobile 4", "IA 12"
 ### Conséquences
 - **Positif** : Les compteurs de catégories sont toujours justes par rapport à ce que voit l'utilisateur (WYSIWYG). L'historique est plus profond.
 - **Négatif** : Charge initiale légèrement plus lourde (300 items JSON), mais négligeable pour du texte (< 100kb gzippé).
+
+---
+
+## ADR-018 : Navigation Gestuelle Mobile (Triage)
+
+### Contexte
+Sur mobile, l'action de trier (curation) doit être rapide. Les butons sont parfois petits. L'alternative était de swiper pour changer de page (Aujourd'hui -> Hier), mais cela entrait en conflit avec le besoin de trier rapidement les articles individuellement.
+
+### Décision
+Implémenter des **Gestes de Swipe sur les cartes articles** :
+- **Swipe Droite** -> Sauvegarder (Ma Liste).
+- **Swipe Gauche** -> Marquer comme lu/non lu.
+
+Nous abandonnons le swipe de navigation globale (changement d'onglet) au profit d'un triage ultra-rapide ("Inbox Zero" style).
+
+### Conséquences
+- **Positif** : Curation beaucoup plus rapide et ergonomique à une main.
+- **Négatif** : Nécessite un apprentissage (découvrabilité moins évidente que des boutons, bien que standard sur mobile type Mail/Tinder).
+
 
 - **5 Onglets** : Aujourd'hui (Home), Hier, Semaine, Ma Liste, Menu.
 - **Menu Overlay** : Le 5ème onglet "Menu" ouvre un panneau pour les actions secondaires (Recherche, Archives, Thème).
