@@ -16,6 +16,7 @@ Ce document recense les améliorations techniques et fonctionnelles prévues pou
 - [x] **Simulation Clustering** : Outil de debug pour visualiser si un article rejoindrait un cluster existant.
 - [x] **Navigation & UX** : Refonte Sidebar (Temps/Context), Filtres Catégories (Pills) et amélioration de la lisibilité `NewsFeed`.
 - [x] **Featured News ("À la Une")** : Système de ranking (Score IA + Sources) pour mettre en avant le Top 3 (Hero + Compacts) sur Aujourd'hui/Hier/Semaine.
+- [x] **PWA** : Configuration manifest, icônes et métadonnées pour installation native sur iOS/Android.
 
 ## 🔮 Améliorations Futures (Backlog)
 
