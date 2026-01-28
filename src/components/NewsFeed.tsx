@@ -347,79 +347,190 @@ export default function NewsFeed() {
         </div>
 
         {/* Scrollable Items Container */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-3">
-          {displayedItems.length === 0 && (
+        <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-6">
+
+          {/* FEATURED SECTION (For 'today', 'yesterday', 'week' filters and if we have items) */}
+          {['today', 'yesterday', 'week'].includes(filterMode) && displayedItems.length > 0 && !searchParams.get('category') && (
+            <div className="mb-6">
+              <h4 className="text-[10px] font-bold uppercase tracking-widest text-muted mb-3 flex items-center gap-2">
+                <Sparkles className="w-3 h-3 text-accent" />
+                <span>À la Une</span>
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {/* Hero Article (#1) */}
+                {(() => {
+                  // Calculate top articles strictly for display
+                  // Logic: Score * 1.5 + SourceCount * 0.5
+                  const featuredCandidates = [...displayedItems].sort((a, b) => {
+                    const scoreA = (a.final_score || 0) * 1.5 + (a.source_count || 1) * 0.5;
+                    const scoreB = (b.final_score || 0) * 1.5 + (b.source_count || 1) * 0.5;
+                    return scoreB - scoreA;
+                  });
+
+                  const top3 = featuredCandidates.slice(0, 3);
+                  const hero = top3[0];
+                  const others = top3.slice(1);
+
+                  if (!hero) return null;
+
+                  return (
+                    <>
+                      <div
+                        onClick={() => selectArticle(hero.id)}
+                        className={`md:col-span-2 group cursor-pointer relative overflow-hidden rounded-2xl border transition-all duration-300 ${selectedId === hero.id ? 'ring-2 ring-accent' : 'hover:border-accent/50'}`}
+                      >
+                        <div className="absolute inset-0 z-0">
+                          {hero.image_url ? (
+                            <img src={hero.image_url} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
+                          ) : (
+                            <div className="w-full h-full bg-gradient-to-br from-accent/20 to-background" />
+                          )}
+                          {/* Stronger Scrim for readability */}
+                          <div className="absolute inset-0 bg-black/40" />
+                          <div className="absolute inset-0 bg-gradient-to-t from-background via-background/90 via-30% to-transparent" />
+                        </div>
+
+                        <div className="relative z-10 p-5 flex flex-col justify-end h-full min-h-[220px]">
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="bg-accent text-white px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider shadow-sm">
+                              {hero.category}
+                            </span>
+                            {hero.source_count > 1 && (
+                              <span className="bg-white/90 backdrop-blur text-black px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 shadow-sm">
+                                <Newspaper className="w-3 h-3" /> {hero.source_count} sources
+                              </span>
+                            )}
+                          </div>
+                          <h2 className="text-xl font-serif font-bold text-foreground leading-tight mb-2 group-hover:text-accent transition-colors drop-shadow-md">
+                            {hero.title}
+                          </h2>
+                          <p className="text-xs text-foreground/90 line-clamp-2 max-w-xl drop-shadow-sm font-medium">
+                            {JSON.parse(hero.summary_short).tldr}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Sub Featured (#2 & #3) - Compact Row Layout */}
+                      {others.map(article => (
+                        <div
+                          key={article.id}
+                          onClick={() => selectArticle(article.id)}
+                          className={`md:col-span-1 group cursor-pointer p-3 rounded-xl border bg-card/40 hover:bg-card transition-all ${selectedId === article.id ? 'border-accent ring-1 ring-accent/20' : 'border-border/40 hover:border-border'}`}
+                        >
+                          <div className="flex flex-col h-full">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-[9px] font-bold uppercase tracking-wider text-accent">{article.category}</span>
+                              <div className="flex items-center gap-2 text-[9px] text-muted-foreground">
+                                {article.source_count > 1 && <span className="flex items-center gap-1"><Newspaper className="w-3 h-3" /> {article.source_count}</span>}
+                                <span>{formatDistanceToNow(new Date(article.published_at))}</span>
+                              </div>
+                            </div>
+                            <h3 className="font-medium text-sm leading-snug group-hover:text-primary transition-colors line-clamp-3 mb-1">
+                              {article.title}
+                            </h3>
+                          </div>
+                        </div>
+                      ))}
+                    </>
+                  );
+                })()}
+              </div>
+              <div className="my-6 border-b border-border/40" />
+            </div>
+          )}
+
+          {/* Standard List */}
+          {displayedItems.length === 0 ? (
             <div className="text-center py-10 text-muted italic text-sm">
               {filterMode === 'saved' ? "Votre liste de lecture est vide." : "Aucun article trouvé."}
             </div>
+          ) : (
+            <div className="space-y-3">
+              {['today', 'yesterday', 'week'].includes(filterMode) && !searchParams.get('category') && <h4 className="text-[10px] font-bold uppercase tracking-widest text-muted mb-2 px-1">Le flux continu</h4>}
+
+              {(() => {
+                // Remove top 3 from list ONLY if we showed the featured section
+                let listItems = displayedItems;
+                if (['today', 'yesterday', 'week'].includes(filterMode) && !searchParams.get('category')) {
+                  const featuredCandidates = [...displayedItems].sort((a, b) => {
+                    const scoreA = (a.final_score || 0) * 1.5 + (a.source_count || 1) * 0.5;
+                    const scoreB = (b.final_score || 0) * 1.5 + (b.source_count || 1) * 0.5;
+                    return scoreB - scoreA;
+                  });
+                  const top3Ids = new Set(featuredCandidates.slice(0, 3).map(i => i.id));
+                  listItems = displayedItems.filter(i => !top3Ids.has(i.id));
+                }
+
+                return listItems.map((article, index) => {
+                  const isSelected = selectedId === article.id;
+                  const isRead = readArticles.has(article.id);
+                  const isSaved = readingList.has(article.id);
+                  const date = new Date(article.published_at);
+
+                  const prevArticle = index > 0 ? listItems[index - 1] : null;
+                  const showDateHeader = !prevArticle ||
+                    new Date(article.published_at).toDateString() !== new Date(prevArticle.published_at).toDateString();
+
+                  return (
+                    <div key={article.id}>
+                      {showDateHeader && filterMode !== 'today' && (
+                        <div className="sticky top-0 z-10 bg-background/90 backdrop-blur px-2 py-1.5 mb-2 -mx-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70 border-b border-border/30">
+                          {formatDateHeader(article.published_at)}
+                        </div>
+                      )}
+                      <div
+                        onClick={() => selectArticle(article.id)}
+                        className={`group cursor-pointer p-3 rounded-xl border transition-all duration-200 relative ${isSelected
+                          ? 'bg-accent/5 border-accent/60 shadow-md ring-1 ring-accent/10'
+                          : isRead
+                            ? 'bg-card/30 border-border/20 opacity-60'
+                            : 'bg-card/60 border-border/40 hover:bg-card hover:border-border'
+                          }`}
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className="flex flex-col items-center gap-1 mt-0.5">
+                            <div className={`text-[10px] font-mono leading-none ${isSelected ? 'text-accent font-bold' : 'text-muted/40'}`}>
+                              {(index + 1).toString().padStart(2, '0')}
+                            </div>
+                            {isRead && <Check className="w-3 h-3 text-green-500/50" />}
+                          </div>
+
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground truncate max-w-[100px]">{article.category}</span>
+                              <span className="text-[9px] text-muted whitespace-nowrap">• {formatDistanceToNow(date)}</span>
+
+                              {/* Source Count Indicator */}
+                              {article.source_count > 1 && (
+                                <span className="flex items-center gap-1 text-[9px] text-muted-foreground bg-secondary/50 px-1.5 py-0.5 rounded-full">
+                                  <Newspaper className="w-3 h-3" />
+                                  {article.source_count}
+                                </span>
+                              )}
+
+                              {/* Score Display (only when sorting by score) */}
+                              {sortBy === 'score' && article.final_score !== null && (
+                                <span className="text-[9px] font-bold text-accent">
+                                  {article.final_score}
+                                </span>
+                              )}
+
+                              {article.final_score > 7 && (
+                                <Sparkles className="w-2 h-2 text-accent" />
+                              )}
+                            </div>
+                            <h4 className={`text-sm font-medium leading-snug line-clamp-2 ${isRead ? 'text-primary/60' : isSelected ? 'text-primary' : 'text-primary/90'}`}>
+                              {article.title}
+                            </h4>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
           )}
-          {displayedItems.map((article, index) => {
-            const isSelected = selectedId === article.id;
-            const isRead = readArticles.has(article.id);
-            const isSaved = readingList.has(article.id);
-            const date = new Date(article.published_at);
-
-            const prevArticle = index > 0 ? displayedItems[index - 1] : null;
-            const showDateHeader = !prevArticle ||
-              new Date(article.published_at).toDateString() !== new Date(prevArticle.published_at).toDateString();
-
-            return (
-              <div key={article.id}>
-                {showDateHeader && (
-                  <div className="sticky top-0 z-10 bg-background/90 backdrop-blur px-2 py-1.5 mb-2 -mx-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70 border-b border-border/30">
-                    {formatDateHeader(article.published_at)}
-                  </div>
-                )}
-                <div
-                  onClick={() => selectArticle(article.id)}
-                  className={`group cursor-pointer p-3 rounded-xl border transition-all duration-200 relative ${isSelected
-                    ? 'bg-accent/5 border-accent/60 shadow-md ring-1 ring-accent/10'
-                    : isRead
-                      ? 'bg-card/30 border-border/20 opacity-60'
-                      : 'bg-card/60 border-border/40 hover:bg-card hover:border-border'
-                    }`}
-                >
-                  <div className="flex items-start gap-3">
-                    <div className="flex flex-col items-center gap-1 mt-0.5">
-                      <div className={`text-[10px] font-mono leading-none ${isSelected ? 'text-accent font-bold' : 'text-muted/40'}`}>
-                        {(index + 1).toString().padStart(2, '0')}
-                      </div>
-                      {isRead && <Check className="w-3 h-3 text-green-500/50" />}
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground truncate max-w-[100px]">{article.category}</span>
-                        <span className="text-[9px] text-muted whitespace-nowrap">• {formatDistanceToNow(date)}</span>
-
-                        {/* Source Count Indicator */}
-                        {article.source_count > 1 && (
-                          <span className="flex items-center gap-1 text-[9px] text-muted-foreground bg-secondary/50 px-1.5 py-0.5 rounded-full">
-                            <Newspaper className="w-3 h-3" />
-                            {article.source_count}
-                          </span>
-                        )}
-
-                        {/* Score Display (only when sorting by score) */}
-                        {sortBy === 'score' && article.final_score !== null && (
-                          <span className="text-[9px] font-bold text-accent">
-                            {article.final_score}
-                          </span>
-                        )}
-
-                        {article.final_score > 7 && (
-                          <Sparkles className="w-2 h-2 text-accent" />
-                        )}
-                      </div>
-                      <h4 className={`text-sm font-medium leading-snug line-clamp-2 ${isRead ? 'text-primary/60' : isSelected ? 'text-primary' : 'text-primary/90'}`}>
-                        {article.title}
-                      </h4>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
         </div>
       </div>
 
