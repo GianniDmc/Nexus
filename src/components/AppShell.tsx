@@ -51,6 +51,10 @@ function SidebarLink({ href, icon, label, onClick }: { href: string; icon: React
   );
 }
 
+import { MobileNav } from '@/components/MobileNav';
+
+// ... (keep SidebarLink)
+
 export function AppShell({ children }: AppShellProps) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const pathname = usePathname();
@@ -87,22 +91,12 @@ export function AppShell({ children }: AppShellProps) {
               }
               window.history.replaceState(null, '', `?${params.toString()}`);
             }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                const target = e.target as HTMLInputElement;
-                const params = new URLSearchParams(window.location.search);
-                if (target.value) params.set('search', target.value);
-                else params.delete('search');
-                window.location.search = params.toString();
-              }
-            }}
             className="w-full bg-secondary/50 border border-border/50 rounded-lg py-1.5 pl-8 pr-3 text-xs focus:outline-none focus:border-accent/50 transition-colors"
           />
         </div>
 
-        {/* Navigation Links (Wrapped in Suspense) */}
+        {/* Navigation Links (Desktop) */}
         <nav className="flex-1 overflow-y-auto py-6 space-y-8">
-          {/* TEMPS Section */}
           <div>
             <h3 className="px-2 text-[10px] font-bold uppercase tracking-widest text-muted mb-3 opacity-70">Temps</h3>
             <Suspense fallback={<div className="animate-pulse space-y-2"><div className="h-8 bg-muted/20 rounded"></div></div>}>
@@ -115,46 +109,64 @@ export function AppShell({ children }: AppShellProps) {
               </div>
             </Suspense>
           </div>
-
-
         </nav>
-
-        {/* Footer / Profile */}
-        <div className="mt-auto pt-4 border-t border-border/40">
-          {/* No auth for now */}
-        </div>
       </aside>
 
       {/* Main Content Area */}
-      <main className="flex-1 flex flex-col h-full overflow-hidden overflow-x-hidden relative">
-        {/* Mobile Header */}
-        <header className="md:hidden flex items-center justify-between p-4 border-b border-border/40 bg-background/80 backdrop-blur-md sticky top-0 z-50">
+      <main className="flex-1 flex flex-col h-full overflow-hidden overflow-x-hidden relative pb-16 md:pb-0">
+        {/* Mobile Header (Minimal) */}
+        <header className="md:hidden flex items-center justify-center p-4 border-b border-border/40 bg-background/80 backdrop-blur-md sticky top-0 z-40">
           <h1 className="text-xl font-serif font-medium tracking-tighter text-primary">
             Nexus<span className="text-accent">.</span>
           </h1>
-          <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="p-2">
-            {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-          </button>
         </header>
 
-        {/* Content Wrapper (Conditional scroll based on page) */}
+        {/* Content Wrapper */}
         <div className={`flex-1 flex flex-col relative ${isHomePage ? 'overflow-hidden' : 'overflow-y-auto scroll-smooth'}`}>
           {children}
         </div>
 
-        {/* Mobile Menu Overlay */}
-        {isMobileMenuOpen && (
-          <div className="absolute inset-0 top-[61px] bg-background z-40 p-4 md:hidden">
-            <div className="space-y-6">
-              <nav className="space-y-2">
-                <SidebarLink onClick={() => setIsMobileMenuOpen(false)} href="/?filter=recent" icon={<Sparkles className="w-5 h-5" />} label="Aujourd'hui" />
-                <SidebarLink onClick={() => setIsMobileMenuOpen(false)} href="/?filter=week" icon={<Calendar className="w-5 h-5" />} label="Cette semaine" />
-                <SidebarLink onClick={() => setIsMobileMenuOpen(false)} href="/?filter=archives" icon={<Archive className="w-5 h-5" />} label="Archives" />
-                <SidebarLink onClick={() => setIsMobileMenuOpen(false)} href="/?filter=saved" icon={<Bookmark className="w-5 h-5" />} label="Ma liste" />
-              </nav>
+        {/* Mobile Navigation Bar */}
+        <MobileNav onMenuClick={() => setIsMobileMenuOpen(true)} />
 
-              <div className="pt-4 border-t border-border/40">
-                <ThemeToggle />
+        {/* Mobile "More" Menu Overlay */}
+        {isMobileMenuOpen && (
+          <div className="fixed inset-0 z-50 bg-background/95 backdrop-blur-xl p-6 md:hidden animate-in slide-in-from-bottom-10 fade-in">
+            <div className="flex items-center justify-between mb-8">
+              <h2 className="text-lg font-serif font-medium">Menu</h2>
+              <button
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="p-2 bg-secondary/50 rounded-full"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              {/* Search in Menu */}
+              <div className="relative">
+                <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="Rechercher dans les archives..."
+                  className="w-full bg-secondary/50 border border-border/50 rounded-xl py-2.5 pl-10 pr-4 text-sm focus:outline-none focus:border-accent"
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    const params = new URLSearchParams(window.location.search);
+                    if (value) params.set('search', value);
+                    else params.delete('search');
+                    window.history.replaceState(null, '', `?${params.toString()}`);
+                  }}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-4">Navigation</h3>
+                <SidebarLink onClick={() => setIsMobileMenuOpen(false)} href="/?filter=archives" icon={<Archive className="w-5 h-5" />} label="Archives" />
+                <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
+                  <span className="text-sm font-medium">Apparence</span>
+                  <ThemeToggle />
+                </div>
               </div>
             </div>
           </div>

@@ -21,6 +21,7 @@ Ce document consigne les choix techniques structurants du projet **App Curation 
 | ADR-013 | 2026-01-28 | Recherche Clusters via RPC dédié | Validé |
 | ADR-014 | 2026-01-28 | Système de "Une" (Featured News) par Ranking | Validé |
 | ADR-015 | 2026-01-28 | Support Progressive Web App (PWA) | Validé |
+| ADR-016 | 2026-01-28 | Navigation Mobile par Bottom Bar | Validé |
 
 ---
 
@@ -243,3 +244,20 @@ Configurer l'application en **PWA (Progressive Web App)** standard.
 ### Conséquences
 - **Positif** : Installable comme une app native, pas d'interface navigateur (URL bar), expérience immersive.
 - **Négatif** : Gestion du cache navigateur parfois complexe pour les mises à jour (non critique pour une app de contenu).
+
+---
+
+## ADR-016 : Navigation Mobile par Bottom Bar
+
+### Contexte
+Le menu "Burger" classique sur mobile cachait des fonctionnalités importantes (filtres archives, recherche) et nécessitait trop de clics pour les actions fréquentes (Home, Hier, Saved). L'ergonomie à une main était médiocre.
+
+### Décision
+Adopter une **Bottom Navigation Bar** (barre d'onglets en bas) pour la version mobile.
+- **5 Onglets** : Aujourd'hui (Home), Hier, Semaine, Ma Liste, Menu.
+- **Menu Overlay** : Le 5ème onglet "Menu" ouvre un panneau pour les actions secondaires (Recherche, Archives, Thème).
+- **Suppression du Burger** : Le header mobile ne contient plus que le logo.
+
+### Conséquences
+- **Positif** : Accès direct aux filtres temporels et favoris (1-tap). Meilleure "thumb-zone". Parité de fonctionnalités avec le Desktop (Hier, Recherche).
+- **Négatif** : Espace vertical réduit de ~60px (acceptable sur les écrans modernes).
