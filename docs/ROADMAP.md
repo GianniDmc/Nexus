@@ -18,6 +18,8 @@ Ce document recense les améliorations techniques et fonctionnelles prévues pou
 - [x] **Featured News ("À la Une")** : Système de ranking (Score IA + Sources) pour mettre en avant le Top 3 (Hero + Compacts) sur Aujourd'hui/Hier/Semaine.
 - [x] **PWA** : Configuration manifest, icônes et métadonnées pour installation native sur iOS/Android.
 - [x] **Navigation Mobile** : Remplacement du menu burger par une Bottom Bar 5 onglets (Home, Hier, Semaine, Ma Liste, Menu).
+- [x] **Admin Mobile** : Correction de l'affichage du panneau d'administration sur mobile (padding, scroll horizontal).
+- [x] **Stabilité Build** : Correction des erreurs de build Vercel (Suspense sur `MobileNav`).
 
 ## 🔮 Améliorations Futures (Backlog)
 

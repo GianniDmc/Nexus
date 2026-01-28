@@ -8,7 +8,9 @@ interface MobileNavProps {
     onMenuClick: () => void;
 }
 
-export function MobileNav({ onMenuClick }: MobileNavProps) {
+import { Suspense } from 'react';
+
+function MobileNavContent({ onMenuClick }: MobileNavProps) {
     const searchParams = useSearchParams();
     const currentFilter = searchParams.get('filter') || 'today';
 
@@ -31,8 +33,8 @@ export function MobileNav({ onMenuClick }: MobileNavProps) {
             <Link
                 href={href}
                 className={`flex flex-col items-center justify-center w-full h-full space-y-1 transition-colors ${isActive
-                        ? 'text-accent'
-                        : 'text-muted-foreground hover:text-primary'
+                    ? 'text-accent'
+                    : 'text-muted-foreground hover:text-primary'
                     }`}
             >
                 <Icon className={`w-5 h-5 ${isActive ? 'fill-current' : ''}`} />
@@ -76,5 +78,13 @@ export function MobileNav({ onMenuClick }: MobileNavProps) {
                 />
             </div>
         </nav>
+    );
+}
+
+export function MobileNav(props: MobileNavProps) {
+    return (
+        <Suspense fallback={<div className="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-background/80 backdrop-blur-xl border-t border-border/40 pb-safe z-50" />}>
+            <MobileNavContent {...props} />
+        </Suspense>
     );
 }
