@@ -74,7 +74,11 @@ La console `/admin` centralise les opérations métiers.
 - **IA Settings** : clés temporaires (OpenAI/Anthropic/Gemini) + provider préféré.
 
 ## 6. Front Public
-- **NewsFeed** : lecture des clusters publiés + summaries, filtres (date, archives, catégorie), tri score/date.
+## 6. Front Public
+- **NewsFeed** :
+    - **Navigation** : Sidebar simplifiée (Temps : Aujourd'hui/Hier/Semaine/Archives) + Pills catégories.
+    - **Featured ("À la Une")** : Top 3 ranking (Score pondéré + Consensus) affiché en Hero/Compact au-dessus du flux.
+    - **Flux** : Liste chronologique ou par score, cartes avec indicateurs de sources multiples.
 - **Reading List** : sauvegarde locale (localStorage) + table `reading_list` prête côté DB.
 - **Articles** : pages détaillées (`/article/[id]`) et digest (`/digest/[id]`).
 

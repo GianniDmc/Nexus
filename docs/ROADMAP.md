@@ -14,6 +14,8 @@ Ce document recense les améliorations techniques et fonctionnelles prévues pou
 - [x] **Similitude** : Outil admin pour tester la similarité entre deux articles.
 - [x] **Refonte Cluster Management** : Interface admin avec filtres (statut), tri (date/score/volume), pagination et moteur de recherche RPC (`search_clusters`).
 - [x] **Simulation Clustering** : Outil de debug pour visualiser si un article rejoindrait un cluster existant.
+- [x] **Navigation & UX** : Refonte Sidebar (Temps/Context), Filtres Catégories (Pills) et amélioration de la lisibilité `NewsFeed`.
+- [x] **Featured News ("À la Une")** : Système de ranking (Score IA + Sources) pour mettre en avant le Top 3 (Hero + Compacts) sur Aujourd'hui/Hier/Semaine.
 
 ## 🔮 Améliorations Futures (Backlog)
 

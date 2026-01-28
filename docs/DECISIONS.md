@@ -19,6 +19,7 @@ Ce document consigne les choix techniques structurants du projet **App Curation 
 | ADR-011 | 2026-01-27 | Harmonisation Stricte des Catégories (Source -> IA) | Validé |
 | ADR-012 | 2026-01-27 | Stockage de la Catégorie au niveau Cluster | Validé |
 | ADR-013 | 2026-01-28 | Recherche Clusters via RPC dédié | Validé |
+| ADR-014 | 2026-01-28 | Système de "Une" (Featured News) par Ranking | Validé |
 
 ---
 
@@ -206,3 +207,21 @@ Implémenter une fonction PostgreSQL `search_clusters` (RPC) qui encapsule toute
 ### Conséquences
 - **Positif** : Performance optimale (filtrage avant pagination), code API simplifié (`supabase.rpc`), UX fluide.
 - **Négatif** : Logique métier déplacée dans une migration SQL (moins flexible que du code TS pur pour les modifs rapides).
+
+---
+
+## ADR-014 : Système de "Une" (Featured News) par Ranking
+
+### Contexte
+Pour mettre en valeur les informations cruciales ("Top News") sans masquer le reste du flux, il fallait un moyen automatique de distinguer le "bruit" de l'information majeure, sur toutes les périodes (Aujourd'hui, Hier, Semaine).
+
+### Décision
+Implémenter un système de **Ranking** plutôt que de filtrage strict.
+- **Formule de Score** : `(Score_IA * 1.5) + (NB_Sources * 0.5)`.
+    - Privilégie la qualité (IA) tout en boostant les sujets à fort consensus (Sources).
+- **Affichage** : Le Top 3 est extrait et affiché dans une section "À la Une" (1 Hero + 2 Compacts).
+- **Scope** : S'applique dynamiquement aux vues "Aujourd'hui", "Hier" et "Cette semaine".
+
+### Conséquences
+- **Positif** : Mise en avant automatique et pertinente. Pas de curation manuelle requise.
+- **Négatif** : Risque de doublon visuel si non retiré de la liste standard (géré par le code d'affichage).
