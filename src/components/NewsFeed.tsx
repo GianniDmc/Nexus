@@ -82,10 +82,10 @@ export default function NewsFeed() {
         `)
         .eq('is_published', true)
         .order('published_on', { ascending: false })
-        .limit(100);
+        .limit(300); // Increased limit for better archives/history coverage
 
       if (!error && data) {
-        // Map clusters to the existing "Article-like" item structure to preserve UI compatibility
+        // Map clusters to the existing "Article-like" item structure
         const mappedItems = data
           .filter(cluster => {
             if (!cluster.summaries) return false;
@@ -97,7 +97,7 @@ export default function NewsFeed() {
             const category = cluster.category || (cluster.representative_article as any)?.category || 'General';
 
             return {
-              id: cluster.id, // Use Cluster ID as the main ID
+              id: cluster.id,
               title: summary.title || cluster.label,
               published_at: cluster.published_on || cluster.created_at,
               category: category,
@@ -105,21 +105,19 @@ export default function NewsFeed() {
               image_url: cluster.image_url,
               source_name: 'Nexus Synthesis',
               cluster_id: cluster.id,
-              // Map new summary structure to old JSON format expected by UI components
               summary_short: JSON.stringify({
                 tldr: summary.content_tldr,
-                full: summary.content_full, // New full content field
+                full: summary.content_full,
                 analysis: summary.content_analysis,
                 isFullSynthesis: true,
                 sourceCount: summary.source_count
               }),
-              source_count: summary.source_count // Direct property for UI access
+              source_count: summary.source_count
             };
           });
 
         setItems(mappedItems);
 
-        // Auto-select first item on desktop
         if (mappedItems.length > 0 && typeof window !== 'undefined' && window.innerWidth >= 1024) {
           setSelectedId(mappedItems[0].id);
         }
@@ -132,19 +130,12 @@ export default function NewsFeed() {
     fetchData();
   }, []);
 
-  // Compute categories
-  const categories = useMemo(() => {
-    const cats = new Set(items.map(i => i.category || 'Général'));
-    return ['Tous', ...Array.from(cats)];
-  }, [items]);
-
-  // Filter and Sort
-  const displayedItems = useMemo(() => {
+  // 1. Base Filter (Time & Search) - Defines available items
+  const baseItems = useMemo(() => {
     let result = [...items];
     const now = Date.now();
-    const HOURS_48 = 48 * 60 * 60 * 1000;
 
-    // 0. Search Filter
+    // Search Filter
     const searchQuery = searchParams.get('search')?.toLowerCase();
     if (searchQuery) {
       result = result.filter(i =>
@@ -153,7 +144,7 @@ export default function NewsFeed() {
       );
     }
 
-    // 1. Primary Filter (URL param)
+    // Time Filter
     if (filterMode === 'today') {
       result = result.filter(i => new Date(i.published_at).toDateString() === new Date().toDateString());
     } else if (filterMode === 'yesterday') {
@@ -163,19 +154,43 @@ export default function NewsFeed() {
     } else if (filterMode === 'week') {
       result = result.filter(i => now - new Date(i.published_at).getTime() <= (7 * 24 * 60 * 60 * 1000));
     } else if (filterMode === 'archives') {
-      // Archives = older than 7 days
       const lastWeek = new Date(now - 7 * 24 * 60 * 60 * 1000);
       result = result.filter(i => new Date(i.published_at) < lastWeek);
     } else if (filterMode === 'saved') {
       result = result.filter(i => readingList.has(i.id));
     }
 
-    // 2. Category filter
-    if (categoryParam) { // Use URL param
+    return result;
+  }, [items, filterMode, searchParams, readingList]);
+
+  // 2. Compute categories from baseItems (Context-aware counts)
+  const categories = useMemo(() => {
+    const counts: Record<string, number> = {};
+    baseItems.forEach(i => {
+      const cat = i.category || 'Général';
+      counts[cat] = (counts[cat] || 0) + 1;
+    });
+
+    const sortedCats = Object.keys(counts).sort((a, b) => {
+      const diff = counts[b] - counts[a];
+      if (diff !== 0) return diff;
+      return a.localeCompare(b);
+    });
+
+    return [
+      { name: 'Tous', count: baseItems.length },
+      ...sortedCats.map(cat => ({ name: cat, count: counts[cat] }))
+    ];
+  }, [baseItems]);
+
+  // 3. Display Items (Category Filter + Sort)
+  const displayedItems = useMemo(() => {
+    let result = [...baseItems];
+
+    if (categoryParam) {
       result = result.filter(i => (i.category || 'Général') === categoryParam);
     }
 
-    // 3. Sort
     if (sortBy === 'score') {
       result.sort((a, b) => (b.final_score || 0) - (a.final_score || 0));
     } else {
@@ -183,7 +198,7 @@ export default function NewsFeed() {
     }
 
     return result;
-  }, [items, categoryParam, filterMode, sortBy, readingList, searchParams]);
+  }, [baseItems, categoryParam, sortBy]);
 
   // Toggle Read Status
   const toggleReadStatus = useCallback((id: string, e?: React.MouseEvent) => {
@@ -301,7 +316,7 @@ export default function NewsFeed() {
               <Filter className="w-4 h-4 text-accent" />
               {getPageTitle()}
               {unreadCount > 0 && (
-                <span className="text-[9px] bg-accent text-white px-1.5 py-0.5 rounded-full">{unreadCount}</span>
+                <span className="text-[9px] bg-accent text-white px-1.5 py-0.5 rounded-full">{unreadCount} non lus</span>
               )}
             </h3>
             <div className="flex items-center gap-3">
@@ -320,25 +335,34 @@ export default function NewsFeed() {
           <div className="overflow-x-auto custom-scrollbar pb-2 -mx-4 px-4">
             <div className="flex items-center gap-2">
               {categories.map(cat => {
-                const isActive = cat === 'Tous' ? !categoryParam : categoryParam === cat;
+                const isActive = cat.name === 'Tous' ? !categoryParam : categoryParam === cat.name;
                 return (
                   <button
-                    key={cat}
+                    key={cat.name}
                     onClick={() => {
                       const params = new URLSearchParams(window.location.search);
-                      if (cat === 'Tous') params.delete('category');
-                      else params.set('category', cat);
+                      if (cat.name === 'Tous') params.delete('category');
+                      else params.set('category', cat.name);
                       window.history.replaceState(null, '', `?${params.toString()}`);
                     }}
                     className={`
-                      whitespace-nowrap px-3 py-1.5 rounded-full text-[11px] font-medium transition-all border
+                      whitespace-nowrap px-2.5 py-1 rounded-full text-[11px] font-medium transition-all border flex items-center gap-1
                       ${isActive
                         ? 'bg-accent text-white border-accent shadow-sm'
                         : 'bg-secondary/40 text-muted-foreground border-transparent hover:bg-secondary/60 hover:text-foreground'
                       }
                     `}
                   >
-                    {cat}
+                    <span>{cat.name}</span>
+                    <span className={`
+                      ml-0.5 flex h-3.5 min-w-[14px] items-center justify-center rounded-full text-[9px] font-bold tabular-nums px-0.5
+                      ${isActive
+                        ? 'bg-white/20 text-white'
+                        : 'bg-muted-foreground/10 text-muted-foreground'
+                      }
+                    `}>
+                      {cat.count}
+                    </span>
                   </button>
                 );
               })}
