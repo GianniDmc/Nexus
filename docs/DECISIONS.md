@@ -20,6 +20,7 @@ Ce document consigne les choix techniques structurants du projet **App Curation 
 | ADR-012 | 2026-01-27 | Stockage de la Catégorie au niveau Cluster | Validé |
 | ADR-013 | 2026-01-28 | Recherche Clusters via RPC dédié | Validé |
 | ADR-014 | 2026-01-28 | Système de "Une" (Featured News) par Ranking | Validé |
+| ADR-015 | 2026-01-28 | Support Progressive Web App (PWA) | Validé |
 
 ---
 
@@ -225,3 +226,20 @@ Implémenter un système de **Ranking** plutôt que de filtrage strict.
 ### Conséquences
 - **Positif** : Mise en avant automatique et pertinente. Pas de curation manuelle requise.
 - **Négatif** : Risque de doublon visuel si non retiré de la liste standard (géré par le code d'affichage).
+
+---
+
+## ADR-015 : Support Progressive Web App (PWA)
+
+### Contexte
+Besoin d'offrir une expérience native sur mobile (iPhone/Android) avec une installation sur l'écran d'accueil ("carrée") et un affichage plein écran, sans passer par les Stores.
+
+### Décision
+Configurer l'application en **PWA (Progressive Web App)** standard.
+- **Manifeste** : `manifest.json` pour définir le nom, les icônes et le mode `standalone` (plein écran).
+- **Icônes** : Génération des assets pour iOS (Apple Touch Icon) et Android.
+- **Méta iOS** : Ajout des balises `apple-mobile-web-app-capable` dans le layout.
+
+### Conséquences
+- **Positif** : Installable comme une app native, pas d'interface navigateur (URL bar), expérience immersive.
+- **Négatif** : Gestion du cache navigateur parfois complexe pour les mises à jour (non critique pour une app de contenu).
