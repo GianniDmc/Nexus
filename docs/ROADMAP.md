@@ -20,6 +20,7 @@ Ce document recense les améliorations techniques et fonctionnelles prévues pou
 - [x] **Navigation Mobile** : Remplacement du menu burger par une Bottom Bar 5 onglets (Home, Hier, Semaine, Ma Liste, Menu).
 - [x] **Admin Mobile** : Correction de l'affichage du panneau d'administration sur mobile (padding, scroll horizontal).
 - [x] **Stabilité Build** : Correction des erreurs de build Vercel (Suspense sur `MobileNav`).
+- [x] **Smart Filters** : Filtres catégories dynamiques (tri par volume, compteurs contextuels) + UI compacte (Badges).
 
 ## 🔮 Améliorations Futures (Backlog)
 

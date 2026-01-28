@@ -22,6 +22,7 @@ Ce document consigne les choix techniques structurants du projet **App Curation 
 | ADR-014 | 2026-01-28 | Système de "Une" (Featured News) par Ranking | Validé |
 | ADR-015 | 2026-01-28 | Support Progressive Web App (PWA) | Validé |
 | ADR-016 | 2026-01-28 | Navigation Mobile par Bottom Bar | Validé |
+| ADR-017 | 2026-01-28 | Calcul Client-Side des Catégories et Limite Étendue | Validé |
 
 ---
 
@@ -254,6 +255,32 @@ Le menu "Burger" classique sur mobile cachait des fonctionnalités importantes (
 
 ### Décision
 Adopter une **Bottom Navigation Bar** (barre d'onglets en bas) pour la version mobile.
+- Onglets fixes : Aujourd'hui, Hier, Semaine, Ma Liste, Menu.
+- Styles et icônes cohérents avec l'application.
+
+### Conséquences
+- **Positif** : Navigation plus fluide, accès direct aux contextes temporels clés.
+- **Négatif** : Perte de place verticale (compensée par le retrait du header massif).
+
+---
+
+## ADR-017 : Calcul Client-Side des Catégories et Limite Étendue
+
+### Contexte
+Les utilisateurs souhaitent que le compteur des catégories ("Mobile 4", "IA 12") reflète le contexte temporel actuel (ex: "Aujourd'hui") et non le total global. De plus, la limite de récupération de 100 articles était trop juste pour voir l'historique sur 7 jours.
+
+### Décision
+1. **Augmenter la limite de fetch** : Passer de 100 à 300 articles récupérés au chargement initial.
+2. **Filtrage en cascade (Waterfall)** :
+   - `fetch(300)` -> `All Items`
+   - `All Items` + `Time Filter` (Today/Yesterday) -> `Base Items`
+   - `Base Items` -> **Calcul des Catégories** (Count)
+   - `Base Items` + `Category Filter` -> `Displayed Items`
+
+### Conséquences
+- **Positif** : Les compteurs de catégories sont toujours justes par rapport à ce que voit l'utilisateur (WYSIWYG). L'historique est plus profond.
+- **Négatif** : Charge initiale légèrement plus lourde (300 items JSON), mais négligeable pour du texte (< 100kb gzippé).
+
 - **5 Onglets** : Aujourd'hui (Home), Hier, Semaine, Ma Liste, Menu.
 - **Menu Overlay** : Le 5ème onglet "Menu" ouvre un panneau pour les actions secondaires (Recherche, Archives, Thème).
 - **Suppression du Burger** : Le header mobile ne contient plus que le logo.
