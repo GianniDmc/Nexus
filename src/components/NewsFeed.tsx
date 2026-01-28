@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { useSearchParams } from 'next/navigation';
 import { Sparkles, ChevronRight, ExternalLink, Filter, ArrowUpDown, Bookmark, Check, Archive, EyeOff, Newspaper } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { SwipeableArticleCard } from './SwipeableArticleCard';
 
 type SortOption = 'date' | 'score';
 
@@ -216,8 +217,8 @@ export default function NewsFeed() {
   }, []);
 
   // Reading list toggle
-  const toggleReadingList = useCallback((id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const toggleReadingList = useCallback((id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
     setReadingList(prev => {
       const updated = new Set(prev);
       if (updated.has(id)) {
@@ -489,7 +490,6 @@ export default function NewsFeed() {
                   const isSelected = selectedId === article.id;
                   const isRead = readArticles.has(article.id);
                   const isSaved = readingList.has(article.id);
-                  const date = new Date(article.published_at);
 
                   const prevArticle = index > 0 ? listItems[index - 1] : null;
                   const showDateHeader = !prevArticle ||
@@ -502,53 +502,18 @@ export default function NewsFeed() {
                           {formatDateHeader(article.published_at)}
                         </div>
                       )}
-                      <div
+
+                      <SwipeableArticleCard
+                        article={article}
+                        index={index}
+                        isSelected={isSelected}
+                        isRead={isRead}
+                        isSaved={isSaved}
+                        sortBy={sortBy}
                         onClick={() => selectArticle(article.id)}
-                        className={`group cursor-pointer p-3 rounded-xl border transition-all duration-200 relative ${isSelected
-                          ? 'bg-accent/5 border-accent/60 shadow-md ring-1 ring-accent/10'
-                          : isRead
-                            ? 'bg-card/30 border-border/20 opacity-60'
-                            : 'bg-card/60 border-border/40 hover:bg-card hover:border-border'
-                          }`}
-                      >
-                        <div className="flex items-start gap-3">
-                          <div className="flex flex-col items-center gap-1 mt-0.5">
-                            <div className={`text-[10px] font-mono leading-none ${isSelected ? 'text-accent font-bold' : 'text-muted/40'}`}>
-                              {(index + 1).toString().padStart(2, '0')}
-                            </div>
-                            {isRead && <Check className="w-3 h-3 text-green-500/50" />}
-                          </div>
-
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground truncate max-w-[100px]">{article.category}</span>
-                              <span className="text-[9px] text-muted whitespace-nowrap">• {formatDistanceToNow(date)}</span>
-
-                              {/* Source Count Indicator */}
-                              {article.source_count > 1 && (
-                                <span className="flex items-center gap-1 text-[9px] text-muted-foreground bg-secondary/50 px-1.5 py-0.5 rounded-full">
-                                  <Newspaper className="w-3 h-3" />
-                                  {article.source_count}
-                                </span>
-                              )}
-
-                              {/* Score Display (only when sorting by score) */}
-                              {sortBy === 'score' && article.final_score !== null && (
-                                <span className="text-[9px] font-bold text-accent">
-                                  {article.final_score}
-                                </span>
-                              )}
-
-                              {article.final_score > 7 && (
-                                <Sparkles className="w-2 h-2 text-accent" />
-                              )}
-                            </div>
-                            <h4 className={`text-sm font-medium leading-snug line-clamp-2 ${isRead ? 'text-primary/60' : isSelected ? 'text-primary' : 'text-primary/90'}`}>
-                              {article.title}
-                            </h4>
-                          </div>
-                        </div>
-                      </div>
+                        onSwipeLeft={() => toggleReadStatus(article.id)}
+                        onSwipeRight={() => toggleReadingList(article.id)}
+                      />
                     </div>
                   );
                 });
