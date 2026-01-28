@@ -18,10 +18,12 @@ Ce document consigne les choix techniques structurants du projet **App Curation 
 | ADR-010 | 2026-01-26 | Next.js App Router comme framework Frontend | Validé |
 | ADR-011 | 2026-01-27 | Harmonisation Stricte des Catégories (Source -> IA) | Validé |
 | ADR-012 | 2026-01-27 | Stockage de la Catégorie au niveau Cluster | Validé |
+| ADR-013 | 2026-01-28 | Recherche Clusters via RPC dédié | Validé |
 
 ---
 
 ## ADR-001 : Sécurisation de l'Admin par Basic Auth (Middleware)
+
 
 ### Contexte
 L'interface `/admin` et les endpoints `/api/admin` exposent des actions sensibles (publication, suppression, clés IA).
@@ -190,3 +192,17 @@ Ajouter une colonne `category` à la table `clusters`.
 ### Conséquences
 - **Positif** : La catégorie affichée est celle du *sujet* et non d'un article au hasard. Permet une requalification éditoriale par l'IA.
 - **Négatif** : Nécessite de garder les deux colonnes (`articles.category` pour l'historique brut, `clusters.category` pour l'affichage) et de gérer la synchro.
+
+---
+
+## ADR-013 : Recherche Clusters via RPC dédié
+
+### Contexte
+L'interface d'administration des clusters nécessitait des filtres combinés (statut, recherche textuelle), un tri multi-critères (date, score, volume) et une pagination performante. Le client JS Supabase standard montrait ses limites pour les agrégations complexes (comptage articles par cluster) combinées à la pagination.
+
+### Décision
+Implémenter une fonction PostgreSQL `search_clusters` (RPC) qui encapsule toute la logique de filtre, tri et pagination côté base.
+
+### Conséquences
+- **Positif** : Performance optimale (filtrage avant pagination), code API simplifié (`supabase.rpc`), UX fluide.
+- **Négatif** : Logique métier déplacée dans une migration SQL (moins flexible que du code TS pur pour les modifs rapides).
