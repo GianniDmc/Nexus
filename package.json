@@ -14,7 +14,8 @@
     "db:dump": "npx supabase db dump --linked -f supabase/schema.sql",
     "db:types": "npx supabase gen types typescript --linked > src/types/database.types.ts",
     "db:start": "npx supabase start",
-    "db:stop": "npx supabase stop"
+    "db:stop": "npx supabase stop",
+    "db:seed": "node scripts/seed-local.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",

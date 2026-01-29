@@ -67,7 +67,15 @@ Vous pouvez lancer une réplique exacte de la prod sur votre machine pour tester
 - **API URL** : `http://localhost:54321`
 - **DB** : `postgresql://postgres:postgres@localhost:54322/postgres`
 
+### 4. Peupler la base ("Seeding")
+Pour importer les dernières données de PROD (50 clusters, sources, articles récents) :
+```bash
+npm run db:seed
+```
+*Cela copie les données de prod vers votre Docker local.*
+
 ### Switcher Local <-> Prod
+Dans `.env.local`, décommentez le bloc correspondant :
 Dans `.env.local`, décommentez le bloc correspondant :
 ```bash
 # --- LOCAL (Docker) ---
