@@ -73,7 +73,7 @@ export function AppShell({ children }: AppShellProps) {
         </div>
 
         {/* Search Input */}
-        <div className="mb-8 relative">
+        <div className="mb-8 relative" suppressHydrationWarning>
           <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
             <Search className="h-3 w-3 text-muted" />
           </div>
