@@ -22,6 +22,8 @@ Ce document recense les améliorations techniques et fonctionnelles prévues pou
 - [x] **Stabilité Build** : Correction des erreurs de build Vercel (Suspense sur `MobileNav`).
 - [x] **Smart Filters** : Filtres catégories dynamiques (tri par volume, compteurs contextuels) + UI compacte (Badges).
 - [x] **Gestures Mobile** : Swipe sur les articles pour Sauvegarder (droite) ou Marquer lu (gauche).
+- [x] **Gestion Sources Admin** : Interface CRUD complète pour gérer les flux RSS, activation/désactivation et stats temps réel.
+- [x] **Ingestion Robuste** : Support des sites protégés (403/401) via simulation navigateur et filtrage automatique des binaires (PDF/Images).
 
 ## 🔮 Améliorations Futures (Backlog)
 

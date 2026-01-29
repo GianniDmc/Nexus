@@ -30,8 +30,8 @@ interface Source {
     name: string;
     url: string;
     category: string;
-    isActive: boolean;
-    lastFetchedAt: string | null;
+    is_active: boolean;
+    last_fetched_at: string | null;
     articleCount: number;
 }
 
@@ -303,7 +303,7 @@ export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
 
                 {showSources && (
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mb-4">
-                        {sources.filter(s => s.isActive).map(source => (
+                        {sources.filter(s => s.is_active).map(source => (
                             <button
                                 key={source.id}
                                 onClick={() => ingestSource(source.name)}
@@ -316,8 +316,8 @@ export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
                                 </div>
                                 <div className="text-[10px] text-muted">
                                     {source.articleCount} articles
-                                    {source.lastFetchedAt && (
-                                        <span className="ml-2">• {formatDistanceToNow(new Date(source.lastFetchedAt), { addSuffix: true, locale: fr })}</span>
+                                    {source.last_fetched_at && (
+                                        <span className="ml-2">• {formatDistanceToNow(new Date(source.last_fetched_at), { addSuffix: true, locale: fr })}</span>
                                     )}
                                 </div>
                             </button>

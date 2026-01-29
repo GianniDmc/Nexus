@@ -25,6 +25,7 @@ Ce document consigne les choix techniques structurants du projet **App Curation 
 | ADR-017 | 2026-01-28 | Calcul Client-Side des Catégories et Limite Étendue | Validé |
 | ADR-018 | 2026-01-28 | Navigation Gestuelle Mobile (Triage) | Validé |
 | ADR-019 | 2026-01-29 | Robustesse API & Champs Calculés (Simulation) | Validé |
+| ADR-020 | 2026-01-29 | Gestion sources via Admin & Robustesse Ingestion | Validé |
 
 ---
 
@@ -327,3 +328,22 @@ Le simulateur de clustering (admin) rencontrait des problèmes d'authentificatio
 ### Conséquences
 - **Positif** : Fiabilité totale de l'outil d'admin, indépendance vis-à-vis des règles RLS utilisateur.
 - **Négatif** : Légère duplication de logique (comptage) hors de la DB, mais justifiée par la stabilité requise.
+
+---
+
+## ADR-020 : Gestion sources via Admin & Robustesse Ingestion
+
+### Contexte
+L'ajout de sources RSS se faisait via migrations SQL manuelles, ce qui était rigide. De plus, l'ingestion échouait sur des sites sécurisés (403/410) ou sur des fichiers binaires (PDF). Le calcul des statistiques par source était aussi lent et limité.
+
+### Décision
+1. **Interface Admin Sources** : Création d'un CRUD complet dans `/admin` pour ajouter/activer/supprimer des sources sans SQL.
+2. **Ingestion Robuste** :
+   - Remplacement de `rss-parser` par `fetch` natif avec simulation complète de navigateur (User-Agent Chrome, Headers Accept).
+   - Ajout de règles d'exclusion pour les binaires (PDF, IMG).
+   - Fallback sur un "RSSReader" générique en cas d'échec du User-Agent navigateur.
+3. **Statistiques Server-Side** : Utilisation d'une fonction RPC `get_source_stats` pour compter les articles sans charger les données en mémoire (contournement limite 1000 rows).
+
+### Conséquences
+- **Positif** : Autonomie totale pour l'ajout de sources. Ingestion résiliente même sur des sites difficiles (PCMag). Stats fiables.
+- **Négatif** : Maintenance plus fine des headers HTTP nécessaire si les protections évoluent.

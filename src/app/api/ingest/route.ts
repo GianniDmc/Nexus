@@ -7,7 +7,8 @@ import { getIngestionCutoff, PUBLICATION_RULES } from '@/lib/publication-rules';
 // Configuration du parser avec un User-Agent pour éviter les blocages (403/404)
 const parser = new Parser({
   headers: {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8'
   },
 });
 
@@ -85,12 +86,43 @@ async function processSource(source: any, supabase: any) {
   const results: any[] = [];
 
   try {
-    const feed = await parser.parseURL(source.url);
+    let feedText: string;
+    let feed: any;
+
+    // Custom fetch with simplified headers to avoid TLS fingerprinting issues
+    const feedResponse = await fetch(source.url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache'
+      }
+    });
+
+    if (!feedResponse.ok) {
+      // Fallback: Try with a generic RSS reader agent if browser agent fails
+      console.log(`[INGEST] Browser agent failed (${feedResponse.status}), retrying with generic agent...`);
+      const retryResponse = await fetch(source.url, {
+        headers: {
+          'User-Agent': 'RSSReader/1.0 (compatible; MSIE 6.0; Windows NT 5.1)',
+          'Accept': '*/*'
+        }
+      });
+      if (!retryResponse.ok) {
+        throw new Error(`Failed to fetch RSS: ${retryResponse.status} ${retryResponse.statusText}`);
+      }
+      feedText = await retryResponse.text();
+    } else {
+      feedText = await feedResponse.text();
+    }
+
+    feed = await parser.parseString(feedText);
 
     const ingestionCutoff = getIngestionCutoff();
     const allItems = feed.items;
 
-    const validItems = allItems.filter(item => {
+    const validItems = allItems.filter((item: any) => {
       if (!item.link) return false;
       const pubDate = item.isoDate ? new Date(item.isoDate) : (item.pubDate ? new Date(item.pubDate) : new Date());
       return pubDate >= ingestionCutoff;
