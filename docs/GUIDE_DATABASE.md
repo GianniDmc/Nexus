@@ -53,3 +53,25 @@ Si l'historique semble cassé ou si Supabase rouspète lors d'un pull :
 npx supabase migration repair --status applied <VERSION_ID>
 ```
 *Cela permet de dire manuellement "T'inquiète, cette version est déjà en place".*
+
+## 5. Environnement Local (Docker)
+
+Vous pouvez lancer une réplique exacte de la prod sur votre machine pour tester sans risque.
+
+### Commandes
+- **Démarrer** : `npm run db:start` (Lance Docker, Postgres, Studio, etc.)
+- **Arrêter** : `npm run db:stop` (Libère les ressources)
+
+### Accès
+- **Studio (Admin UI)** : [http://localhost:54323](http://localhost:54323)
+- **API URL** : `http://localhost:54321`
+- **DB** : `postgresql://postgres:postgres@localhost:54322/postgres`
+
+### Switcher Local <-> Prod
+Dans `.env.local`, décommentez le bloc correspondant :
+```bash
+# --- LOCAL (Docker) ---
+NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
+...
+```
+*N'oubliez pas de redémarrer `npm run dev` après un changement de variable d'env.*

@@ -34,3 +34,5 @@ ts-debug.log*
 .vercel
 # Supabase
 supabase/.temp
+supabase/.branches
+

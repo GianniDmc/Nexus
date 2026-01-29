@@ -109,3 +109,8 @@ Depuis ADR-022, la gestion est **100% programmatique** via Supabase CLI.
   2. `npm run db:pull` (Sync remote changes)
   3. `npm run db:types` (Sync TypeScript)
 
+### Environnement Local
+Une instance Docker complète est disponible pour le dév risqué :
+- `npm run db:start` / `npm run db:stop`
+- Bascule via `.env.local`.
+

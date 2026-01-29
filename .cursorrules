@@ -26,6 +26,7 @@ Tu es un expert développeur Full Stack spécialisé dans Next.js (App Router), 
     - **OBLIGATOIRE**: Vérifier le build (`npm run build`) ou le linter (`npm run lint`) après chaque modification significative.
     - Pas de régressions sur le type checking.
     - **DB Management**: Ne JAMAIS proposer de modif SQL manuelle. Utiliser `npm run db:pull` pour sync ou créer une migration CLI. Toujours générer les types (`npm run db:types`) après un changement DB.
+    - **Local Dev**: Privilégier l'environnement local (`npm run db:start`) pour les migrations destructrices ou les tests lourds.
 4.  **Mémoire**: 
     - Avant de coder : Lire `docs/ARCHITECTURE.md`.
     - Après avoir codé : **Mettre à jour la documentation** si la solution a changé l'architecture ou les specs. Ne demande pas, fais-le.
