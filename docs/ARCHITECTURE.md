@@ -100,3 +100,12 @@ Le seuil par défaut est **0.75** avec une fenêtre de **7 jours** (l'outil admi
 ## 8. Scripts utilitaires
 Des scripts Node.js (`scripts/`) servent aux audits et migrations ponctuelles :
 - harmonisation catégories, backfill clusters, diagnostics stats, sanity checks DB.
+
+## 9. Gestion Base de Données (Workflow Safe)
+Depuis ADR-022, la gestion est **100% programmatique** via Supabase CLI.
+- **Interdit** : Modifier le schéma via l'interface web (sauf urgence).
+- **Workflow** : 
+  1. `npm run db:dump` (Backup)
+  2. `npm run db:pull` (Sync remote changes)
+  3. `npm run db:types` (Sync TypeScript)
+

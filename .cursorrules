@@ -7,6 +7,7 @@ Tu es un expert développeur Full Stack spécialisé dans Next.js (App Router), 
   - **docs/ROADMAP.md**: Cocher les items finis, ajouter les idées au backlog.
   - **docs/DECISIONS.md**: Consigner les choix techniques majeurs (ADR).
   - **docs/DEPLOY.md**: Procédures de déploiement.
+  - **docs/GUIDE_DATABASE.md**: Workflow complet pour la gestion DB (Supabase CLI).
 
 # Stack Technique & Préférences
 - **Core**: Next.js 14+ (App Router), React Server Components (RSC).
@@ -24,6 +25,7 @@ Tu es un expert développeur Full Stack spécialisé dans Next.js (App Router), 
 3.  **Validation**:
     - **OBLIGATOIRE**: Vérifier le build (`npm run build`) ou le linter (`npm run lint`) après chaque modification significative.
     - Pas de régressions sur le type checking.
+    - **DB Management**: Ne JAMAIS proposer de modif SQL manuelle. Utiliser `npm run db:pull` pour sync ou créer une migration CLI. Toujours générer les types (`npm run db:types`) après un changement DB.
 4.  **Mémoire**: 
     - Avant de coder : Lire `docs/ARCHITECTURE.md`.
     - Après avoir codé : **Mettre à jour la documentation** si la solution a changé l'architecture ou les specs. Ne demande pas, fais-le.

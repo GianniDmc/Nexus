@@ -6,7 +6,13 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "db:login": "npx supabase login",
+    "db:link": "npx supabase link",
+    "db:pull": "npx supabase db pull",
+    "db:push": "npx supabase db push",
+    "db:dump": "npx supabase db dump --linked -f supabase/schema.sql",
+    "db:types": "npx supabase gen types typescript --linked > src/types/database.types.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",
@@ -36,6 +42,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.1.4",
+    "supabase": "^2.72.9",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
