@@ -11,6 +11,7 @@ import { ManualSteps } from '@/components/admin/ManualSteps';
 import { AISettings } from '@/components/admin/AISettings';
 import { AnalyticsDashboard } from '@/components/admin/AnalyticsDashboard';
 import { SourceManager } from '@/components/admin/SourceManager';
+import { RawArticleManager } from '@/components/admin/RawArticleManager';
 
 interface Stats {
   total: number;
@@ -36,7 +37,7 @@ interface Stats {
 export default function AdminPage() {
   const [loading, setLoading] = useState(false);
   const [stats, setStats] = useState<Stats | null>(null);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'analytics' | 'editorial' | 'clusters' | 'ia' | 'sources'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'analytics' | 'editorial' | 'clusters' | 'ia' | 'sources' | 'cms'>('dashboard');
 
   const fetchStats = async () => {
     try {
@@ -103,6 +104,13 @@ export default function AdminPage() {
                 }`}
             >
               <CheckCircle className="w-4 h-4" /> Sources
+            </button>
+            <button
+              onClick={() => setActiveTab('cms')}
+              className={`pb-3 text-xs md:text-sm font-bold uppercase tracking-wider flex items-center gap-2 border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${activeTab === 'cms' ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-primary'
+                }`}
+            >
+              <Database className="w-4 h-4" /> Archives / CMS
             </button>
           </div>
         </header>
@@ -254,9 +262,13 @@ export default function AdminPage() {
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
             <AISettings />
           </div>
-        ) : (
+        ) : activeTab === 'sources' ? (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
             <SourceManager />
+          </div>
+        ) : (
+          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <RawArticleManager />
           </div>
         )}
       </div >
