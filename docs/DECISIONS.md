@@ -28,6 +28,7 @@ Ce document consigne les choix techniques structurants du projet **App Curation 
 | ADR-020 | 2026-01-29 | Gestion sources via Admin & Robustesse Ingestion | Validé |
 | ADR-021 | 2026-01-29 | Restauration et Amélioration de la Gestion des Articles Bruts (CMS) | Validé |
 | ADR-022 | 2026-01-29 | Workflow Programmatique Supabase "Safe" | Validé |
+| ADR-023 | 2026-01-29 | Environnement de Développement Local Supabase (Docker) | Validé |
 
 ---
 
@@ -391,3 +392,20 @@ Adopter un workflow strict basé sur le **Supabase CLI** avec une approche "Back
 ### Conséquences
 - **Positif** : Sécurité totale (versioning), synchronisation TypeScript/DB garantie, fin des conflits "local vs remote".
 - **Négatif** : Nécessite une discipline stricte (ne pas modifier le schéma localement sans passer par une migration ou un pull).
+
+---
+
+## ADR-023 : Environnement de Développement Local Supabase (Docker)
+
+### Contexte
+Tester des migrations destructrices ou de grosses refontes de données directement sur la base de production (même via des branches) comporte des risques. Le besoin d'un environnement "bac à sable" totalement isolé et rapide (hors ligne) s'est fait sentir.
+
+### Décision
+Mettre en place une instance **Supabase Local** via Docker (`supabase start`).
+- Les scripts `db:start` et `db:stop` pilotent ce conteneur.
+- Le fichier `.env.local` permet de basculer l'application entière sur cet environnement local via des commentaires.
+
+### Conséquences
+- **Positif** : Sécurité maximale pour le dev (0 risque pour la prod). Tests E2E possibles sans latence réseau. Accès complet à un Supabase Studio local.
+- **Négatif** : Nécessite Docker Desktop. Consomme des ressources machine (~1-2GB RAM).
+
