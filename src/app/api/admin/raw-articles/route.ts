@@ -16,7 +16,7 @@ export async function GET(request: Request) {
 
         let query = supabase
             .from('articles')
-            .select('*', { count: 'estimated' });
+            .select('*', { count: 'exact' });
 
         if (search) {
             query = query.or(`title.ilike.%${search}%,content.ilike.%${search}%`);
