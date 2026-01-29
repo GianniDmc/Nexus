@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useSearchParams } from 'next/navigation';
-import { Sparkles, ChevronRight, ExternalLink, Filter, ArrowUpDown, Bookmark, Check, Archive, EyeOff, Newspaper } from 'lucide-react';
+import { Sparkles, ChevronRight, ExternalLink, Filter, ArrowUpDown, Bookmark, Check, Archive, EyeOff, Newspaper, Eye } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { SwipeableArticleCard } from './SwipeableArticleCard';
 
@@ -55,7 +55,14 @@ export default function NewsFeed() {
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  // Remove local activeCategory state, rely on URL
+  // Check for desktop to disable swipe-to-close on large screens
+  const [isDesktop, setIsDesktop] = useState(false);
+  useEffect(() => {
+    const checkDesktop = () => setIsDesktop(window.innerWidth >= 1024);
+    checkDesktop();
+    window.addEventListener('resize', checkDesktop);
+    return () => window.removeEventListener('resize', checkDesktop);
+  }, []);
   const [sortBy, setSortBy] = useState<SortOption>('date');
 
   // User interaction states (localStorage)
@@ -400,61 +407,35 @@ export default function NewsFeed() {
 
                   return (
                     <>
-                      <div
+                      {/* Hero Article (#1) */}
+                      <SwipeableArticleCard
+                        variant="hero"
+                        article={hero}
+                        index={0}
+                        isSelected={selectedId === hero.id}
+                        isRead={readArticles.has(hero.id)}
+                        isSaved={readingList.has(hero.id)}
+                        sortBy={sortBy}
                         onClick={() => selectArticle(hero.id)}
-                        className={`md:col-span-2 group cursor-pointer relative overflow-hidden rounded-2xl border transition-all duration-300 ${selectedId === hero.id ? 'ring-2 ring-accent' : 'hover:border-accent/50'}`}
-                      >
-                        <div className="absolute inset-0 z-0">
-                          {hero.image_url ? (
-                            <img src={hero.image_url} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
-                          ) : (
-                            <div className="w-full h-full bg-gradient-to-br from-accent/20 to-background" />
-                          )}
-                          {/* Stronger Scrim for readability */}
-                          <div className="absolute inset-0 bg-black/40" />
-                          <div className="absolute inset-0 bg-gradient-to-t from-background via-background/90 via-30% to-transparent" />
-                        </div>
-
-                        <div className="relative z-10 p-5 flex flex-col justify-end h-full min-h-[220px]">
-                          <div className="flex items-center gap-2 mb-2">
-                            <span className="bg-accent text-white px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider shadow-sm">
-                              {hero.category}
-                            </span>
-                            {hero.source_count > 1 && (
-                              <span className="bg-white/90 backdrop-blur text-black px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 shadow-sm">
-                                <Newspaper className="w-3 h-3" /> {hero.source_count} sources
-                              </span>
-                            )}
-                          </div>
-                          <h2 className="text-xl font-serif font-bold text-foreground leading-tight mb-2 group-hover:text-accent transition-colors drop-shadow-md">
-                            {hero.title}
-                          </h2>
-                          <p className="text-xs text-foreground/90 line-clamp-2 max-w-xl drop-shadow-sm font-medium">
-                            {JSON.parse(hero.summary_short).tldr}
-                          </p>
-                        </div>
-                      </div>
+                        onSwipeLeft={() => toggleReadStatus(hero.id)}
+                        onSwipeRight={() => toggleReadingList(hero.id)}
+                      />
 
                       {/* Sub Featured (#2 & #3) - Compact Row Layout */}
-                      {others.map(article => (
-                        <div
+                      {others.map((article, idx) => (
+                        <SwipeableArticleCard
                           key={article.id}
+                          variant="compact"
+                          article={article}
+                          index={idx + 1}
+                          isSelected={selectedId === article.id}
+                          isRead={readArticles.has(article.id)}
+                          isSaved={readingList.has(article.id)}
+                          sortBy={sortBy}
                           onClick={() => selectArticle(article.id)}
-                          className={`md:col-span-1 group cursor-pointer p-3 rounded-xl border bg-card/40 hover:bg-card transition-all ${selectedId === article.id ? 'border-accent ring-1 ring-accent/20' : 'border-border/40 hover:border-border'}`}
-                        >
-                          <div className="flex flex-col h-full">
-                            <div className="flex items-center justify-between mb-2">
-                              <span className="text-[9px] font-bold uppercase tracking-wider text-accent">{article.category}</span>
-                              <div className="flex items-center gap-2 text-[9px] text-muted-foreground">
-                                {article.source_count > 1 && <span className="flex items-center gap-1"><Newspaper className="w-3 h-3" /> {article.source_count}</span>}
-                                <span>{formatDistanceToNow(new Date(article.published_at))}</span>
-                              </div>
-                            </div>
-                            <h3 className="font-medium text-sm leading-snug group-hover:text-primary transition-colors line-clamp-3 mb-1">
-                              {article.title}
-                            </h3>
-                          </div>
-                        </div>
+                          onSwipeLeft={() => toggleReadStatus(article.id)}
+                          onSwipeRight={() => toggleReadingList(article.id)}
+                        />
                       ))}
                     </>
                   );
@@ -527,11 +508,20 @@ export default function NewsFeed() {
       <AnimatePresence mode="wait">
         {(selectedArticle || (typeof window !== 'undefined' && window.innerWidth >= 1024)) && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            initial={{ x: '100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '100%' }}
+            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+            drag={isDesktop ? false : "x"}
+            dragConstraints={{ left: 0, right: 0 }}
+            dragElastic={0.2}
+            onDragEnd={(_, info) => {
+              if (info.offset.x > 100) {
+                setSelectedId(null);
+              }
+            }}
             className={`
-            lg:col-span-8 h-full overflow-hidden flex flex-col bg-background
+            lg:col-span-8 h-full overflow-hidden flex flex-col bg-background shadow-2xl lg:shadow-none
             ${selectedArticle ? 'fixed inset-0 z-[100] lg:static lg:z-auto lg:relative' : 'hidden lg:flex lg:relative'}
           `}>
             {/* Mobile Close Button */}
@@ -564,8 +554,8 @@ export default function NewsFeed() {
                     </div>
 
                     <div className="flex gap-2">
-                      <button onClick={(e) => toggleReadStatus(selectedArticle.id, e)} className="p-2 bg-background/60 backdrop-blur rounded-full hover:bg-background transition-all border border-transparent hover:border-border text-muted-foreground hover:text-primary" title="Marquer lu/non-lu">
-                        <EyeOff className="w-4 h-4" />
+                      <button onClick={(e) => toggleReadStatus(selectedArticle.id, e)} className={`p-2 bg-background/60 backdrop-blur rounded-full hover:bg-background transition-all border border-transparent hover:border-border ${readArticles.has(selectedArticle.id) ? 'text-primary' : 'text-muted-foreground hover:text-primary'}`} title={readArticles.has(selectedArticle.id) ? "Marquer non-lu" : "Marquer lu"}>
+                        {readArticles.has(selectedArticle.id) ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       </button>
                       <button onClick={(e) => toggleReadingList(selectedArticle.id, e)} className={`p-2 bg-background/60 backdrop-blur rounded-full hover:bg-background transition-all border border-transparent hover:border-border ${readingList.has(selectedArticle.id) ? 'text-accent' : 'text-muted-foreground hover:text-accent'}`} title="Sauvegarder">
                         <Bookmark className={`w-4 h-4 ${readingList.has(selectedArticle.id) ? 'fill-current' : ''}`} />
