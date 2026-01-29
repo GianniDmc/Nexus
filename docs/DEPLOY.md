@@ -21,6 +21,11 @@ Si ce n'est pas déjà fait, pousse ton code vers un "repository" GitHub privé.
     ```
     *(Si tu utilises déjà git, ignore cette étape).*
 
+## 2b. Initialiser la Base de Données
+Avant de déployer, assure-toi que ta base Supabase est à jour.
+1.  Si tu as le CLI configuré : lance `npx supabase db push` (seulement si tu es sûr) ou applique les migrations manquantes manuellement.
+2.  Alternative : Va dans le **SQL Editor** de Supabase et vérifie que les tables existent.
+
 ## 3. Déployer sur Vercel
 C'est la méthode la plus simple pour héberger du Next.js.
 

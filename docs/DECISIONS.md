@@ -27,6 +27,7 @@ Ce document consigne les choix techniques structurants du projet **App Curation 
 | ADR-019 | 2026-01-29 | Robustesse API & Champs Calculés (Simulation) | Validé |
 | ADR-020 | 2026-01-29 | Gestion sources via Admin & Robustesse Ingestion | Validé |
 | ADR-021 | 2026-01-29 | Restauration et Amélioration de la Gestion des Articles Bruts (CMS) | Validé |
+| ADR-022 | 2026-01-29 | Workflow Programmatique Supabase "Safe" | Validé |
 
 ---
 
@@ -372,3 +373,21 @@ La migration vers une architecture "Cluster-Centric" (ADR-005) a masqué la visi
 - **Positif** : Transparence totale sur les données brutes. Capacité de débogage et de modération accrue. L'approche "Manual Fetch" garantit que la liste s'affiche toujours, même en cas de corruption des liens clusters.
 - **Négatif** : Ajoute une surface d'interface supplémentaire à maintenir.
 
+
+---
+
+## ADR-022 : Workflow Programmatique Supabase "Safe"
+
+### Contexte
+La gestion de la base de données se faisait partiellement via l'interface web Supabase, créant un risque de désynchronisation et d'absence de versioning. Le besoin était de passer à une gestion 100% programmatique tout en sécurisant l'existant.
+
+### Décision
+Adopter un workflow strict basé sur le **Supabase CLI** avec une approche "Backwards Compatible" :
+1.  **Backup First** : Toute session de travail commence par `db:dump` pour sécuriser l'état prod.
+2.  **Sync-First** : Utilisation systématique de `db:pull` pour transformer les changements UI en migrations versionnées.
+3.  **Scripts npm** : encapsulation des commandes complexes (`db:login`, `db:link`, `db:pull`, `db:types`) dans le `package.json` pour éviter les erreurs manuelles.
+4.  **Types Automatiques** : Génération des types TypeScript (`src/types/database.types.ts`) après chaque changement de schéma.
+
+### Conséquences
+- **Positif** : Sécurité totale (versioning), synchronisation TypeScript/DB garantie, fin des conflits "local vs remote".
+- **Négatif** : Nécessite une discipline stricte (ne pas modifier le schéma localement sans passer par une migration ou un pull).
