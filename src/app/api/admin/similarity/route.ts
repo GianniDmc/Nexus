@@ -111,7 +111,7 @@ export async function GET(req: NextRequest) {
     try {
         let query = supabase
             .from('articles')
-            .select('id, title, source_name')
+            .select('id, title, source_name, cluster_id, published_at')
             .not('embedding', 'is', null)
             .order('published_at', { ascending: false })
             .limit(search ? 50 : 20);
@@ -124,7 +124,7 @@ export async function GET(req: NextRequest) {
             const idList = ids.split(',');
             query = supabase
                 .from('articles')
-                .select('id, title, source_name')
+                .select('id, title, source_name, cluster_id, published_at')
                 .in('id', idList);
         }
 

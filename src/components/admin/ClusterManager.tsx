@@ -22,13 +22,14 @@ interface Article {
     url?: string;
     score?: number;
     published_at?: string;
+    cluster_id?: string;
 }
 
 interface SimulationResult {
     article: Article;
     matches: Match[];
     decision: 'JOIN_EXISTING' | 'CREATE_CLUSTER' | 'NEW_CLUSTER';
-    targetCluster?: { id: string, label: string, article_count: number };
+    targetCluster?: { id: string; label: string; article_count: number; previewArticles?: Article[] };
 }
 
 interface Match {
@@ -37,6 +38,7 @@ interface Match {
     published_at: string;
     similarity: number;
     cluster: Cluster | null;
+    matchType?: 'valid' | 'weak';
 }
 
 // Sub-component for searchable article selection
@@ -70,11 +72,7 @@ function ArticleSearch({
         // If query matches current value title, don't search
         if (value && query === value.title) return;
 
-        // Only search if query has length
-        if (query.length < 2) {
-            setResults([]);
-            return;
-        }
+        // Allow empty query (fetches recent articles)
 
         const timer = setTimeout(async () => {
             setLoading(true);
@@ -82,7 +80,8 @@ function ArticleSearch({
                 const res = await fetch(`/api/admin/similarity?search=${encodeURIComponent(query)}`);
                 const data = await res.json();
                 setResults(data.articles || []);
-                setIsOpen(true);
+                // Only auto-open if we have results and it's an explicit search or focus interaction
+                // (Handled by onFocus/onChange)
             } catch (e) {
                 console.error("Search error", e);
             } finally {
@@ -134,7 +133,17 @@ function ArticleSearch({
                             className="w-full text-left p-3 hover:bg-secondary truncate text-sm flex flex-col gap-1 border-b border-border/50 last:border-0"
                         >
                             <span className="font-medium truncate block">{article.title}</span>
-                            <span className="text-xs text-muted">[{article.source_name}]</span>
+                            <div className="flex items-center gap-2 text-xs text-muted">
+                                <span>[{article.source_name}]</span>
+                                {article.published_at && (
+                                    <span>• {formatDistanceToNow(new Date(article.published_at), { addSuffix: true, locale: fr })}</span>
+                                )}
+                                {article.cluster_id && (
+                                    <span className="text-[10px] bg-blue-500/10 text-blue-500 px-1.5 py-0.5 rounded border border-blue-500/20">
+                                        Clustérisé
+                                    </span>
+                                )}
+                            </div>
                         </button>
                     ))}
                 </div>
@@ -302,8 +311,30 @@ export function ClusterManager() {
 
                             {simulationResult.targetCluster && (
                                 <div className="ml-9 text-sm">
-                                    Rejoint le cluster : <span className="font-bold">{simulationResult.targetCluster.label}</span>
-                                    <span className="text-muted ml-2">({simulationResult.targetCluster.article_count} articles)</span>
+                                    <div className="flex items-center gap-2">
+                                        <span>Rejoint le cluster : <span className="font-bold">{simulationResult.targetCluster.label}</span></span>
+                                        <span className="text-muted text-xs">({simulationResult.targetCluster.article_count} articles)</span>
+                                    </div>
+
+                                    {simulationResult.targetCluster.previewArticles && (
+                                        <details className="mt-2 text-xs">
+                                            <summary className="cursor-pointer text-muted hover:text-foreground transition-colors font-medium select-none flex items-center gap-1 w-fit">
+                                                <ChevronRight className="w-3 h-3 transition-transform group-open:rotate-90" />
+                                                Voir les articles de ce cluster
+                                            </summary>
+                                            <div className="mt-2 pl-4 space-y-1 border-l-2 border-border/50">
+                                                {simulationResult.targetCluster.previewArticles.map((a) => (
+                                                    <div key={a.id} className="flex items-center gap-2 py-1">
+                                                        <ExternalLink className="w-3 h-3 text-muted shrink-0" />
+                                                        <span className="truncate opacity-80" title={a.title}>{a.title}</span>
+                                                        <span className="text-[10px] text-muted font-mono whitespace-nowrap ml-auto">
+                                                            {a.published_at ? formatDistanceToNow(new Date(a.published_at), { addSuffix: true, locale: fr }) : ''}
+                                                        </span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </details>
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -311,41 +342,69 @@ export function ClusterManager() {
                         {/* Matches Table */}
                         <div className="bg-secondary/20 rounded-lg p-4 border border-border">
                             <h3 className="text-sm font-bold text-muted mb-3 uppercase tracking-wide">
-                                Articles Similaires Trouvés ({simulationResult.matches.length})
+                                Articles Similaires Trouvés ({simulationResult.matches?.length || 0})
                             </h3>
 
-                            {simulationResult.matches.length === 0 ? (
-                                <p className="text-sm text-muted italic">Aucun article similaire trouvé (&gt; 75%) dans les 7 derniers jours.</p>
+                            {(!simulationResult.matches || simulationResult.matches.length === 0) ? (
+                                <p className="text-sm text-muted italic">Aucun article similaire trouvé (&gt; 50%) dans les 7 derniers jours.</p>
                             ) : (
                                 <div className="space-y-2">
-                                    {simulationResult.matches.map((match: Match) => (
-                                        <div key={match.id} className="bg-card p-3 rounded border border-border/50 flex items-center justify-between text-sm">
-                                            <div className="flex-1 min-w-0 pr-4">
-                                                <div className="font-medium truncate">{match.title}</div>
-                                                <div className="flex items-center gap-2 mt-1">
-                                                    <span className="text-xs text-muted">{formatDistanceToNow(new Date(match.published_at), { addSuffix: true, locale: fr })}</span>
-                                                    {match.cluster ? (
-                                                        <span className="text-[10px] bg-accent/10 text-accent px-1.5 py-0.5 rounded border border-accent/20">
-                                                            Cluster: {match.cluster.label}
-                                                        </span>
-                                                    ) : (
-                                                        <span className="text-[10px] bg-secondary text-muted px-1.5 py-0.5 rounded">
-                                                            Sans cluster
-                                                        </span>
-                                                    )}
+                                    {simulationResult.matches.map((match: Match) => {
+                                        const isWeak = match.matchType === 'weak' || match.similarity < 0.75;
+                                        const isTarget = simulationResult.targetCluster && match.cluster?.id === simulationResult.targetCluster.id;
+                                        return (
+                                            <div
+                                                key={match.id}
+                                                className={`p-3 rounded border flex items-center justify-between text-sm ${isTarget
+                                                    ? 'bg-accent/5 border-accent/30 ring-1 ring-accent/20'
+                                                    : isWeak
+                                                        ? 'bg-secondary/30 border-border/30 opacity-75'
+                                                        : 'bg-card border-border/50 shadow-sm'
+                                                    }`}
+                                            >
+                                                <div className="flex-1 min-w-0 pr-4">
+                                                    <div className="flex items-center gap-2">
+                                                        <div className="font-medium truncate">
+                                                            {match.title}
+                                                        </div>
+                                                        {isTarget && (
+                                                            <span className="text-[10px] bg-accent text-white px-1.5 py-0.5 rounded font-bold uppercase tracking-wider shadow-sm">
+                                                                Cible
+                                                            </span>
+                                                        )}
+                                                        {isWeak && (
+                                                            <span className="text-[10px] bg-red-500/10 text-red-500 px-1.5 py-0.5 rounded border border-red-500/20 uppercase font-bold tracking-wider">
+                                                                Faible
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <div className="flex items-center gap-2 mt-1">
+                                                        <span className="text-xs text-muted">{formatDistanceToNow(new Date(match.published_at), { addSuffix: true, locale: fr })}</span>
+                                                        {match.cluster ? (
+                                                            <span className="text-[10px] bg-accent/10 text-accent px-1.5 py-0.5 rounded border border-accent/20">
+                                                                Cluster: {match.cluster.label}
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-[10px] bg-secondary text-muted px-1.5 py-0.5 rounded">
+                                                                Sans cluster
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                <div className="shrink-0 text-right">
+                                                    <div className={`font-mono font-bold ${getScoreColor(match.similarity)}`}>
+                                                        {(match.similarity * 100).toFixed(1)}%
+                                                    </div>
                                                 </div>
                                             </div>
-                                            <div className="shrink-0 text-right">
-                                                <div className={`font-mono font-bold ${getScoreColor(match.similarity)}`}>
-                                                    {(match.similarity * 100).toFixed(1)}%
-                                                </div>
-                                                <div className="text-[10px] text-muted">Similarité</div>
-                                            </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             )}
                         </div>
+
+
+                        {/* Old location removed */}
                     </div>
                 )}
             </div>
@@ -525,6 +584,6 @@ export function ClusterManager() {
                     </div>
                 )}
             </div>
-        </div>
+        </div >
     );
 }

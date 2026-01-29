@@ -24,6 +24,7 @@ Ce document consigne les choix techniques structurants du projet **App Curation 
 | ADR-016 | 2026-01-28 | Navigation Mobile par Bottom Bar | Validé |
 | ADR-017 | 2026-01-28 | Calcul Client-Side des Catégories et Limite Étendue | Validé |
 | ADR-018 | 2026-01-28 | Navigation Gestuelle Mobile (Triage) | Validé |
+| ADR-019 | 2026-01-29 | Robustesse API & Champs Calculés (Simulation) | Validé |
 
 ---
 
@@ -293,6 +294,9 @@ Sur mobile, l'action de trier (curation) doit être rapide. Les butons sont parf
 Implémenter des **Gestes de Swipe sur les cartes articles** :
 - **Swipe Droite** -> Sauvegarder (Ma Liste).
 - **Swipe Gauche** -> Marquer comme lu/non lu.
+- **Swipe Droite (Détail)** -> Fermer l'article (Retour).
+
+Ces gestes s'appliquent à **tous les articles**, y compris ceux "À la Une" (Featured).
 
 Nous abandonnons le swipe de navigation globale (changement d'onglet) au profit d'un triage ultra-rapide ("Inbox Zero" style).
 
@@ -308,3 +312,18 @@ Nous abandonnons le swipe de navigation globale (changement d'onglet) au profit 
 ### Conséquences
 - **Positif** : Accès direct aux filtres temporels et favoris (1-tap). Meilleure "thumb-zone". Parité de fonctionnalités avec le Desktop (Hier, Recherche).
 - **Négatif** : Espace vertical réduit de ~60px (acceptable sur les écrans modernes).
+
+---
+
+## ADR-019 : Robustesse API & Champs Calculés (Simulation)
+
+### Contexte
+Le simulateur de clustering (admin) rencontrait des problèmes d'authentification (RLS) et de schéma (colonne `article_count` manquante sur `clusters`) lors de l'exécution via API Route.
+
+### Décision
+1. **Authentification Explicite** : Utiliser `createClient` avec la clé `SERVICE_ROLE` et les options `auth: { persistSession: false, autoRefreshToken: false }` pour garantir les droits admin en contexte serveur, indépendamment du client appelant.
+2. **Champs Calculés API-Side** : Ne pas dépendre de triggers/vues DB pour des agrégats simples comme `article_count` dans des contextes critiques. Le calculer à la volée dans l'API (`count(*)` sur articles) pour éviter les désynchronisations de schéma.
+
+### Conséquences
+- **Positif** : Fiabilité totale de l'outil d'admin, indépendance vis-à-vis des règles RLS utilisateur.
+- **Négatif** : Légère duplication de logique (comptage) hors de la DB, mais justifiée par la stabilité requise.
