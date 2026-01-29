@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
         let decision = "NEW_CLUSTER";
         let targetCluster = null;
 
-        const matchesWithDetails = [];
+        const matchesWithDetails: any[] = [];
 
         if (matches && matches.length > 0) {
             // Robustness: Fetch latest cluster_id for these articles directly from DB

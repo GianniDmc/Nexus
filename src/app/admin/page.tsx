@@ -10,6 +10,7 @@ import { ClusterManager } from '@/components/admin/ClusterManager';
 import { ManualSteps } from '@/components/admin/ManualSteps';
 import { AISettings } from '@/components/admin/AISettings';
 import { AnalyticsDashboard } from '@/components/admin/AnalyticsDashboard';
+import { SourceManager } from '@/components/admin/SourceManager';
 
 interface Stats {
   total: number;
@@ -35,7 +36,7 @@ interface Stats {
 export default function AdminPage() {
   const [loading, setLoading] = useState(false);
   const [stats, setStats] = useState<Stats | null>(null);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'analytics' | 'editorial' | 'clusters' | 'ia'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'analytics' | 'editorial' | 'clusters' | 'ia' | 'sources'>('dashboard');
 
   const fetchStats = async () => {
     try {
@@ -95,6 +96,13 @@ export default function AdminPage() {
                 }`}
             >
               <Key className="w-4 h-4" /> ⚙️ IA
+            </button>
+            <button
+              onClick={() => setActiveTab('sources')}
+              className={`pb-3 text-xs md:text-sm font-bold uppercase tracking-wider flex items-center gap-2 border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${activeTab === 'sources' ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-primary'
+                }`}
+            >
+              <CheckCircle className="w-4 h-4" /> Sources
             </button>
           </div>
         </header>
@@ -242,9 +250,13 @@ export default function AdminPage() {
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
             <ClusterManager />
           </div>
-        ) : (
+        ) : activeTab === 'ia' ? (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
             <AISettings />
+          </div>
+        ) : (
+          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <SourceManager />
           </div>
         )}
       </div >
