@@ -24,6 +24,7 @@ Ce document recense les améliorations techniques et fonctionnelles prévues pou
 - [x] **Gestures Mobile** : Swipe sur les articles pour Sauvegarder (droite) ou Marquer lu (gauche).
 - [x] **Gestion Sources Admin** : Interface CRUD complète pour gérer les flux RSS, activation/désactivation et stats temps réel.
 - [x] **Ingestion Robuste** : Support des sites protégés (403/401) via simulation navigateur et filtrage automatique des binaires (PDF/Images).
+- [x] **Restauration CMS & Inspection** : Vue "Raw Articles" complète avec filtres (Source, Cluster), inspection JSON et navigation inter-clusters.
 
 ## 🔮 Améliorations Futures (Backlog)
 

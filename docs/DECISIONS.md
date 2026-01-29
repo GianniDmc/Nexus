@@ -26,6 +26,7 @@ Ce document consigne les choix techniques structurants du projet **App Curation 
 | ADR-018 | 2026-01-28 | Navigation Gestuelle Mobile (Triage) | Validé |
 | ADR-019 | 2026-01-29 | Robustesse API & Champs Calculés (Simulation) | Validé |
 | ADR-020 | 2026-01-29 | Gestion sources via Admin & Robustesse Ingestion | Validé |
+| ADR-021 | 2026-01-29 | Restauration et Amélioration de la Gestion des Articles Bruts (CMS) | Validé |
 
 ---
 
@@ -347,3 +348,27 @@ L'ajout de sources RSS se faisait via migrations SQL manuelles, ce qui était ri
 ### Conséquences
 - **Positif** : Autonomie totale pour l'ajout de sources. Ingestion résiliente même sur des sites difficiles (PCMag). Stats fiables.
 - **Négatif** : Maintenance plus fine des headers HTTP nécessaire si les protections évoluent.
+
+---
+
+## ADR-021 : Restauration et Amélioration de la Gestion des Articles Bruts (CMS)
+
+### Contexte
+La migration vers une architecture "Cluster-Centric" (ADR-005) a masqué la visibilité sur les articles individuels. Les utilisateurs n'avaient plus moyen d'inspecter un article spécifique, de vérifier son contenu original, ou de le supprimer s'il était mal classé, à moins qu'il ne fasse partie d'un cluster visible. De plus, il manquait des outils pour auditer la qualité du clustering à la volée.
+
+### Décision
+1.  **Rétablir une Vue CMS Dédiée** : Création d'un onglet "Archives / CMS" (`RawArticleManager`) indépendant des clusters, affichant *tous* les articles ingérés.
+2.  **Architecture API Hybride** :
+    - L'endpoint `/api/admin/raw-articles` gère la récupération avec pagination et recherche.
+    - **Fetch Manuel des Labels Cluster** : Au lieu d'un `JOIN` SQL complexe qui posait des problèmes de performance/fiabilité sur les articles orphelins ou mal liés, l'API effectue une première requête pour les articles, collecte les `cluster_id`, et récupère les labels dans une seconde requête simple (Map-Reduce côté serveur).
+3.  **Filtrage Avancé** :
+    - Ajout d'un filtre par **Source** (dropdown dynamique).
+    - Ajout d'un filtre par **Cluster ID** (pour voir tous les articles d'un même groupe).
+4.  **UX d'Inspection** :
+    - Modale "Inspection" pour voir le JSON brut et le contenu stocké.
+    - Modale "Cluster Drill-down" : Clic sur un nom de cluster pour ouvrir la liste de ses articles, permettant une vérification immédiate de la cohérence du regroupement.
+
+### Conséquences
+- **Positif** : Transparence totale sur les données brutes. Capacité de débogage et de modération accrue. L'approche "Manual Fetch" garantit que la liste s'affiche toujours, même en cas de corruption des liens clusters.
+- **Négatif** : Ajoute une surface d'interface supplémentaire à maintenir.
+
