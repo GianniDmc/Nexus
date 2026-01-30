@@ -520,12 +520,14 @@ export default function NewsFeed() {
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
-            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+            transition={{ type: 'spring', damping: 30, stiffness: 300 }}
             drag={isDesktop ? false : "x"}
-            dragConstraints={{ left: 0, right: 0 }}
-            dragElastic={0.2}
+            dragConstraints={{ left: 0 }}
+            dragElastic={0.05}
+            dragDirectionLock
             onDragEnd={(_, info) => {
-              if (info.offset.x > 100) {
+              // Close if dragged more than 100px OR if flicked fast enough
+              if (info.offset.x > 100 || info.velocity.x > 500) {
                 setSelectedId(null);
               }
             }}
