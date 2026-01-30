@@ -130,9 +130,9 @@ export async function POST(req: NextRequest) {
   try {
     try {
       // ═══════════════════════════════════════════════════════════════════
-      // STEP 1: EMBEDDING
+      // STEP 1: EMBEDDING (WATERFALL LOOP: Finished when no more work OR timeout)
       // ═══════════════════════════════════════════════════════════════════
-      if (step === 'embedding' || step === 'all') {
+      while ((step === 'embedding' || step === 'all') && isTimeSafelyRemaining() && !results.stopped) {
         const { data: needsEmbedding } = await supabase
           .from('articles')
           .select('id, title, content')
@@ -140,82 +140,103 @@ export async function POST(req: NextRequest) {
           .order('created_at', { ascending: true })
           .limit(processingLimit);
 
-        if (needsEmbedding && needsEmbedding.length > 0) {
-          for (const article of needsEmbedding) {
-            if (await shouldStopProcessing()) { results.stopped = true; break; }
-            if (!isTimeSafelyRemaining()) { results.stopped = true; break; }
+        if (!needsEmbedding || needsEmbedding.length === 0) {
+          // No more work for this step
+          break;
+        }
 
-            try {
-              const contentSnippet = article.content ? article.content.slice(0, 1000) : '';
-              const textToEmbed = `${article.title}\n\n${contentSnippet}`;
+        let processedInBatch = 0;
+        for (const article of needsEmbedding) {
+          if (await shouldStopProcessing()) { results.stopped = true; break; }
+          if (!isTimeSafelyRemaining()) { results.stopped = true; break; }
 
-              const embedding = await generateEmbedding(textToEmbed, effectiveConfig.geminiKey);
+          try {
+            const contentSnippet = article.content ? article.content.slice(0, 1000) : '';
+            const textToEmbed = `${article.title}\n\n${contentSnippet}`;
 
-              if (embedding) {
-                const { error: updateError } = await supabase.from('articles').update({ embedding }).eq('id', article.id);
-                if (!updateError) results.embeddings++;
+            const embedding = await generateEmbedding(textToEmbed, effectiveConfig.geminiKey);
+
+            if (embedding) {
+              const { error: updateError } = await supabase.from('articles').update({ embedding }).eq('id', article.id);
+              if (!updateError) {
+                results.embeddings++;
+                processedInBatch++;
               }
-            } catch (error: any) {
-              if (error.message?.includes('429') || error.status === 429) throw error;
-              console.error(`[EMBED ERROR] Failed to embed article ${article.id}:`, error);
-              // Skip this article on error (no updated_at column to cycle it)
             }
+          } catch (error: any) {
+            if (error.message?.includes('429') || error.status === 429) throw error;
+            console.error(`[EMBED ERROR] Failed to embed article ${article.id}:`, error);
           }
         }
+
+        // Avoid infinite loops if something is stuck (though we skip errored items in next query ideally, but here we query is('embedding', null))
+        // If we processed 0 items in a non-empty batch, it means all failed. We should probably break to avoid hammering.
+        if (processedInBatch === 0) break;
+
+        await updateProgress(results.embeddings, -1, `Embedding: ${results.embeddings} traités...`);
       }
 
       // ═══════════════════════════════════════════════════════════════════
-      // STEP 2: CLUSTERING
+      // STEP 2: CLUSTERING (WATERFALL LOOP)
       // ═══════════════════════════════════════════════════════════════════
-      if ((step === 'clustering' || step === 'all') && isTimeSafelyRemaining() && !results.stopped) {
+      while ((step === 'clustering' || step === 'all') && isTimeSafelyRemaining() && !results.stopped) {
         const { data: needsClustering } = await supabase
           .from('articles')
           .select('id, title, embedding, published_at, category')
           .not('embedding', 'is', null)
           .is('cluster_id', null)
-          .limit(processingLimit); // Use updated limit
+          .limit(processingLimit);
 
-        if (needsClustering && needsClustering.length > 0) {
-          for (const article of needsClustering) {
-            if (await shouldStopProcessing()) { results.stopped = true; break; }
-            if (!isTimeSafelyRemaining()) { results.stopped = true; break; }
-
-            const { data: matches } = await supabase.rpc('find_similar_articles', {
-              query_embedding: article.embedding,
-              match_threshold: 0.75,
-              match_count: 20,
-              anchor_date: article.published_at || new Date().toISOString(),
-              window_days: 7,
-              exclude_id: article.id
-            });
-
-            // Strategy: Prefer joining an existing cluster
-            const bestMatchWithCluster = matches?.find((m: any) => m.cluster_id);
-
-            if (bestMatchWithCluster) {
-              await supabase.from('articles').update({ cluster_id: bestMatchWithCluster.cluster_id }).eq('id', article.id);
-            } else {
-              const { data: newCluster } = await supabase
-                .from('clusters')
-                .insert({
-                  label: article.title,
-                  category: normalizeCategory(article.category) // Normalize category
-                })
-                .select()
-                .single();
-              if (newCluster) {
-                await supabase.from('articles').update({ cluster_id: newCluster.id }).eq('id', article.id);
-              }
-            }
-            results.clustered++;
-          }
+        if (!needsClustering || needsClustering.length === 0) {
+          break;
         }
+
+        let processedInBatch = 0;
+        for (const article of needsClustering) {
+          if (await shouldStopProcessing()) { results.stopped = true; break; }
+          if (!isTimeSafelyRemaining()) { results.stopped = true; break; }
+
+          const { data: matches } = await supabase.rpc('find_similar_articles', {
+            query_embedding: article.embedding,
+            match_threshold: 0.75,
+            match_count: 20,
+            anchor_date: article.published_at || new Date().toISOString(),
+            window_days: 7,
+            exclude_id: article.id
+          });
+
+          // Strategy: Prefer joining an existing cluster
+          const bestMatchWithCluster = matches?.find((m: any) => m.cluster_id);
+
+          if (bestMatchWithCluster) {
+            // Join existing cluster
+            await supabase.from('articles').update({ cluster_id: bestMatchWithCluster.cluster_id }).eq('id', article.id);
+          } else {
+            // Create new cluster
+            const { data: newCluster } = await supabase
+              .from('clusters')
+              .insert({
+                label: article.title,
+                category: normalizeCategory(article.category)
+              })
+              .select()
+              .single();
+            if (newCluster) {
+              await supabase.from('articles').update({ cluster_id: newCluster.id }).eq('id', article.id);
+            }
+          }
+          results.clustered++;
+          processedInBatch++;
+        }
+
+        if (processedInBatch === 0) break;
+        await updateProgress(results.clustered, -1, `Clustering: ${results.clustered} traités...`);
       }
 
       // ═══════════════════════════════════════════════════════════════════
-      // STEP 3: SCORING (Cluster Centric)
+      // STEP 3: SCORING (WATERFALL LOOP)
       // ═══════════════════════════════════════════════════════════════════
-      if ((step === 'scoring' || step === 'all') && isTimeSafelyRemaining() && !results.stopped) {
+      while ((step === 'scoring' || step === 'all') && isTimeSafelyRemaining() && !results.stopped) {
         // Fetch known unscored clusters
         const { data: clustersToScore, error: scoreQueryError } = await supabase
           .from('clusters')
@@ -233,42 +254,51 @@ export async function POST(req: NextRequest) {
 
         if (scoreQueryError) {
           console.error("Scoring Query Error:", scoreQueryError);
+          break;
         }
 
-        if (clustersToScore && clustersToScore.length > 0) {
-          await updateProgress(0, clustersToScore.length, `Scoring de ${clustersToScore.length} clusters...`);
+        if (!clustersToScore || clustersToScore.length === 0) {
+          break;
+        }
 
-          for (const cluster of clustersToScore) {
-            if (await shouldStopProcessing()) { results.stopped = true; break; }
-            if (!isTimeSafelyRemaining()) { results.stopped = true; break; }
+        await updateProgress(results.scored, -1, `Scoring: ${results.scored} traités...`);
 
-            // Supabase typing
-            const articles = (Array.isArray(cluster.articles) ? cluster.articles : []) as any[];
+        let processedInBatch = 0;
+        for (const cluster of clustersToScore) {
+          if (await shouldStopProcessing()) { results.stopped = true; break; }
+          if (!isTimeSafelyRemaining()) { results.stopped = true; break; }
 
-            if (articles.length === 0) {
-              await supabase.from('clusters').update({ final_score: 0 }).eq('id', cluster.id);
-              continue;
-            }
+          // Supabase typing
+          const articles = (Array.isArray(cluster.articles) ? cluster.articles : []) as any[];
 
-            // New Cluster-Centric Scoring
-            const evaluation = await scoreCluster(articles, effectiveConfig);
-
-            // Save score
-            await supabase.from('clusters').update({
-              final_score: evaluation.score,
-              representative_article_id: evaluation.representative_id
-            }).eq('id', cluster.id);
-
-            results.scored++;
-            await sleep(llmDelayMs); // Respect Rate Limit
+          if (articles.length === 0) {
+            await supabase.from('clusters').update({ final_score: 0 }).eq('id', cluster.id);
+            continue;
           }
+
+          // New Cluster-Centric Scoring
+          const evaluation = await scoreCluster(articles, effectiveConfig);
+
+          // Save score
+          await supabase.from('clusters').update({
+            final_score: evaluation.score,
+            representative_article_id: evaluation.representative_id
+          }).eq('id', cluster.id);
+
+          results.scored++;
+          processedInBatch++;
+          await sleep(llmDelayMs); // Respect Rate Limit
         }
+
+        if (processedInBatch === 0) break;
       }
 
       // ═══════════════════════════════════════════════════════════════════
-      // STEP 4: REWRITING & PUBLISHING
+      // STEP 4: REWRITING & PUBLISHING (WATERFALL LOOP - Careful with limits here)
       // ═══════════════════════════════════════════════════════════════════
-      if ((step === 'rewriting' || step === 'all') && isTimeSafelyRemaining() && !results.stopped) {
+      // Note: Rewriting can be expensive and consume quota. We might want to limit this loop strictly 
+      // or at least be very conscious of time.
+      while ((step === 'rewriting' || step === 'all') && isTimeSafelyRemaining() && !results.stopped) {
 
         const { data: publishedClusters } = await supabase
           .from('clusters')
@@ -290,63 +320,70 @@ export async function POST(req: NextRequest) {
         const filteredClusterIds: string[] = [];
         const freshnessCutoff = pubConfig.freshnessCutoff;
 
-        if (clustersToProcess && clustersToProcess.length > 0) {
-          // Batch fetch optimization...
-          const candidateIds = clustersToProcess
-            .filter(c => !publishedClusterIds.has(c.id))
-            .map(c => c.id);
+        if (!clustersToProcess || clustersToProcess.length === 0) {
+          break; // No more candidates
+        }
 
-          if (candidateIds.length > 0) {
-            const { data: allArticles } = await supabase
-              .from('articles')
-              .select('cluster_id, source_name, published_at')
-              .in('cluster_id', candidateIds)
-              .order('published_at', { ascending: true });
+        // Batch fetch optimization...
+        const candidateIds = clustersToProcess
+          .filter(c => !publishedClusterIds.has(c.id))
+          .map(c => c.id);
 
-            const articlesByCluster = (allArticles || []).reduce((acc, art) => {
-              if (!acc[art.cluster_id]) acc[art.cluster_id] = [];
-              acc[art.cluster_id].push(art);
-              return acc;
-            }, {} as Record<string, any[]>);
+        if (candidateIds.length > 0) {
+          const { data: allArticles } = await supabase
+            .from('articles')
+            .select('cluster_id, source_name, published_at')
+            .in('cluster_id', candidateIds)
+            .order('published_at', { ascending: true });
 
-            for (const cluster of clustersToProcess) {
-              if (filteredClusterIds.length >= processingLimit) break;
-              if (!candidateIds.includes(cluster.id)) continue;
+          const articlesByCluster = (allArticles || []).reduce((acc, art) => {
+            if (!acc[art.cluster_id]) acc[art.cluster_id] = [];
+            acc[art.cluster_id].push(art);
+            return acc;
+          }, {} as Record<string, any[]>);
 
-              const clusterArticles = articlesByCluster[cluster.id] || [];
-              if (clusterArticles.length === 0) continue;
+          for (const cluster of clustersToProcess) {
+            if (filteredClusterIds.length >= processingLimit) break;
+            if (!candidateIds.includes(cluster.id)) continue;
 
-              // Maturity Check
-              if (!pubConfig.ignoreMaturity && pubConfig.maturityHours > 0) {
-                const oldestArticleDate = new Date(clusterArticles[0].published_at).getTime();
-                const maturityMillis = pubConfig.maturityHours * 60 * 60 * 1000;
-                if ((Date.now() - oldestArticleDate) < maturityMillis) continue;
-              }
+            const clusterArticles = articlesByCluster[cluster.id] || [];
+            if (clusterArticles.length === 0) continue;
 
-              // Freshness Check
-              if (pubConfig.freshOnly) {
-                const hasFreshArticle = clusterArticles.some((a: any) => a.published_at >= freshnessCutoff);
-                if (!hasFreshArticle) continue;
-              }
-
-              // Min Sources Check
-              if (pubConfig.minSources > 1) {
-                const uniqueSources = new Set(clusterArticles.map((a: any) => a.source_name)).size;
-                if (uniqueSources < pubConfig.minSources) continue;
-              }
-
-              filteredClusterIds.push(cluster.id);
+            // Maturity Check
+            if (!pubConfig.ignoreMaturity && pubConfig.maturityHours > 0) {
+              const oldestArticleDate = new Date(clusterArticles[0].published_at).getTime();
+              const maturityMillis = pubConfig.maturityHours * 60 * 60 * 1000;
+              if ((Date.now() - oldestArticleDate) < maturityMillis) continue;
             }
+
+            // Freshness Check
+            if (pubConfig.freshOnly) {
+              const hasFreshArticle = clusterArticles.some((a: any) => a.published_at >= freshnessCutoff);
+              if (!hasFreshArticle) continue;
+            }
+
+            // Min Sources Check
+            if (pubConfig.minSources > 1) {
+              const uniqueSources = new Set(clusterArticles.map((a: any) => a.source_name)).size;
+              if (uniqueSources < pubConfig.minSources) continue;
+            }
+
+            filteredClusterIds.push(cluster.id);
           }
         }
 
-        await updateProgress(0, filteredClusterIds.length, `Démarrage rédaction (${filteredClusterIds.length} clusters)...`);
+        if (filteredClusterIds.length === 0) {
+          break; // No candidates passed filters
+        }
 
+        await updateProgress(results.rewritten, -1, `Démarrage rédaction batch...`);
+
+        let processedInBatch = 0;
         for (const clusterId of filteredClusterIds) {
           if (await shouldStopProcessing()) { results.stopped = true; break; }
           if (!isTimeSafelyRemaining()) { results.stopped = true; break; }
 
-          await updateProgress(results.rewritten + 1, filteredClusterIds.length, `Rédaction (${results.rewritten + 1}/${filteredClusterIds.length})...`);
+          await updateProgress(results.rewritten, -1, `Rédaction: ${results.rewritten} publiés...`);
 
 
           const { data: sources } = await supabase
@@ -363,8 +400,7 @@ export async function POST(req: NextRequest) {
               console.error(`[REWRITE ERROR] Exception during rewriteArticle:`, e);
             }
 
-            // SAFETY CHECK: Ensure we have valid content before publishing
-            // Prevents "Empty Articles" bug
+            // SAFETY CHECK
             if (rewritten && rewritten.title && rewritten.content && rewritten.title.length > 5 && rewritten.content.length > 50) {
 
               // Fetch Image for top article
@@ -400,6 +436,7 @@ export async function POST(req: NextRequest) {
                   }).eq('id', clusterId);
 
                   results.rewritten++;
+                  processedInBatch++;
                 }
               }
             } else {
@@ -409,6 +446,8 @@ export async function POST(req: NextRequest) {
             await sleep(llmDelayMs);
           }
         }
+
+        if (processedInBatch === 0) break;
       }
 
       return NextResponse.json({
