@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useSearchParams } from 'next/navigation';
-import { Sparkles, ChevronRight, ExternalLink, Filter, ArrowUpDown, Bookmark, Check, Archive, EyeOff, Newspaper, Eye } from 'lucide-react';
+import { Sparkles, ChevronRight, ExternalLink, Filter, ArrowUpDown, Bookmark, Check, Archive, EyeOff, Newspaper, Eye, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { SwipeableArticleCard } from './SwipeableArticleCard';
 
@@ -76,67 +76,68 @@ export default function NewsFeed() {
   }, []);
 
   // Fetch clusters (published stories)
-  useEffect(() => {
-    async function fetchData() {
-      setLoading(true);
+  const fetchData = useCallback(async () => {
+    setLoading(true);
 
-      // New Architecture: Fetch Published Clusters with Summaries
-      const { data, error } = await supabase
-        .from('clusters')
-        .select(`
+    // New Architecture: Fetch Published Clusters with Summaries
+    const { data, error } = await supabase
+      .from('clusters')
+      .select(`
           *,
           summaries (*),
           representative_article:articles!representative_article_id (category)
         `)
-        .eq('is_published', true)
-        .order('published_on', { ascending: false })
-        .limit(300); // Increased limit for better archives/history coverage
+      .eq('is_published', true)
+      .order('published_on', { ascending: false })
+      .limit(300); // Increased limit for better archives/history coverage
 
-      if (!error && data) {
-        // Map clusters to the existing "Article-like" item structure
-        const mappedItems = data
-          .filter(cluster => {
-            if (!cluster.summaries) return false;
-            if (Array.isArray(cluster.summaries)) return cluster.summaries.length > 0;
-            return true;
-          })
-          .map(cluster => {
-            const summary = Array.isArray(cluster.summaries) ? cluster.summaries[0] : cluster.summaries;
-            const category = cluster.category || (cluster.representative_article as any)?.category || 'General';
+    if (!error && data) {
+      // Map clusters to the existing "Article-like" item structure
+      const mappedItems = data
+        .filter(cluster => {
+          if (!cluster.summaries) return false;
+          if (Array.isArray(cluster.summaries)) return cluster.summaries.length > 0;
+          return true;
+        })
+        .map(cluster => {
+          const summary = Array.isArray(cluster.summaries) ? cluster.summaries[0] : cluster.summaries;
+          const category = cluster.category || (cluster.representative_article as any)?.category || 'General';
 
-            return {
-              id: cluster.id,
-              title: summary.title || cluster.label,
-              published_at: cluster.published_on || cluster.created_at,
-              category: category,
-              final_score: cluster.final_score,
-              image_url: cluster.image_url,
-              source_name: 'Nexus Synthesis',
-              cluster_id: cluster.id,
-              summary_short: JSON.stringify({
-                tldr: summary.content_tldr,
-                full: summary.content_full,
-                analysis: summary.content_analysis,
-                isFullSynthesis: true,
-                sourceCount: summary.source_count
-              }),
-              source_count: summary.source_count
-            };
-          });
+          return {
+            id: cluster.id,
+            title: summary.title || cluster.label,
+            published_at: cluster.published_on || cluster.created_at,
+            category: category,
+            final_score: cluster.final_score,
+            image_url: cluster.image_url,
+            source_name: 'Nexus Synthesis',
+            cluster_id: cluster.id,
+            summary_short: JSON.stringify({
+              tldr: summary.content_tldr,
+              full: summary.content_full,
+              analysis: summary.content_analysis,
+              isFullSynthesis: true,
+              sourceCount: summary.source_count
+            }),
+            source_count: summary.source_count
+          };
+        });
 
-        setItems(mappedItems);
+      setItems(mappedItems);
 
-        if (mappedItems.length > 0 && typeof window !== 'undefined' && window.innerWidth >= 1024) {
-          setSelectedId(mappedItems[0].id);
-        }
-      } else {
-        console.error("Fetch error:", error);
+      // Only select the first item on initial load, not on refresh
+      if (mappedItems.length > 0 && typeof window !== 'undefined' && window.innerWidth >= 1024 && items.length === 0) {
+        setSelectedId(mappedItems[0].id);
       }
-      setLoading(false);
+    } else {
+      console.error("Fetch error:", error);
     }
+    setLoading(false);
+  }, []); // Remove items dependency to avoid re-triggering logic unnecessarily
 
+  useEffect(() => {
     fetchData();
-  }, []);
+  }, [fetchData]);
 
   // 1. Base Filter (Time & Search) - Defines available items
   const baseItems = useMemo(() => {
@@ -328,6 +329,14 @@ export default function NewsFeed() {
               )}
             </h3>
             <div className="flex items-center gap-3">
+              <button
+                onClick={() => fetchData()}
+                disabled={loading}
+                className="text-[10px] font-bold uppercase tracking-widest flex items-center gap-1 text-muted hover:text-accent transition-colors disabled:opacity-50"
+                title="Rafraîchir"
+              >
+                <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+              </button>
               <button
                 onClick={() => setSortBy(sortBy === 'date' ? 'score' : 'date')}
                 className="text-[10px] font-bold uppercase tracking-widest flex items-center gap-1 text-muted hover:text-accent transition-colors"

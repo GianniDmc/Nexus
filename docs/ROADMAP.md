@@ -100,3 +100,18 @@ Ces idées sont notées pour référence future, sans priorité définie.
 - **Attribution explicite** : Mentionner les sources dans le texte (*"Selon TechCrunch..."*) pour plus de crédibilité
 - **Angle éditorial configurable** : Permettre de choisir l'angle (tech pure, business, impact utilisateur)
 - **Traçabilité sources** : Ajouter un champ `sources_used` dans le JSON de sortie
+
+### 📉 Dette Technique & Report de Chantier
+Conformément aux priorités actuelles, les chantiers suivants sont **volontairement reportés** :
+
+1.  **CI/CD (Github Actions)** :
+    - *Pourquoi* : Le projet est encore en phase de raffinement fonctionnel.
+    - *Quand* : À mettre en place lors de la première release publique majeure (v1.0).
+
+2.  **Tests Automatisés (Jest/Playwright)** :
+    - *Pourquoi* : La logique évolue trop vite (ingestion, clustering), maintenir des tests serait contre-productif maintenant.
+    - *Quand* : Une fois le moteur d'ingestion stabilisé.
+
+3.  **Linting Strict (Code Hygiene)** :
+    - *État* : ~200 warnings/erreurs (principalement des types `any`).
+    - *Action* : On accepte cette dette pour garder la vélocité. À nettoyer progressivement (règle du Boy Scout).
