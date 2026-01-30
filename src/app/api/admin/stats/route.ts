@@ -60,7 +60,9 @@ export async function GET(req: Request) {
       // rejectedClustersRes
       supabase.from('clusters').select('*', { count: 'exact', head: true }).lt('final_score', publishThreshold).not('final_score', 'is', null),
       // scoredClustersCountRes
-      supabase.from('clusters').select('*', { count: 'exact', head: true }).not('final_score', 'is', null)
+      supabase.from('clusters').select('*', { count: 'exact', head: true }).not('final_score', 'is', null),
+      // pipelineStatsRes - Use RPC to get multiArticleClusters count directly from SQL (bypasses row limit)
+      supabase.rpc('get_pipeline_stats')
     ];
 
     // 2. Execute all queries in parallel
@@ -79,7 +81,8 @@ export async function GET(req: Request) {
       lastArticleRes,
       relevantClustersRes,
       rejectedClustersRes,
-      scoredClustersCountRes
+      scoredClustersCountRes,
+      pipelineStatsRes
     ] = (await Promise.all(independentQueries)) as any[];
 
     // 3. Process candidate clusters and articles for publication stats
@@ -87,14 +90,10 @@ export async function GET(req: Request) {
     const allClusterArticles = (allClusterArticlesRes.data as any[]) || [];
     const candidateIdSet = new Set(candidateClusters.map((c: any) => c.id));
 
-    // Group articles by cluster and calculate multi-article clusters in one pass
+    // Group articles by cluster for candidate filtering (limited data, but OK for filtering)
     const articlesByCluster: Record<string, any[]> = {};
-    const clusterMap: Record<string, number> = {};
 
     allClusterArticles.forEach(a => {
-      // For multi-article count
-      clusterMap[a.cluster_id] = (clusterMap[a.cluster_id] || 0) + 1;
-
       // For candidates filtering
       if (candidateIdSet.has(a.cluster_id)) {
         if (!articlesByCluster[a.cluster_id]) articlesByCluster[a.cluster_id] = [];
@@ -102,7 +101,9 @@ export async function GET(req: Request) {
       }
     });
 
-    const multiArticleClusters = Object.values(clusterMap).filter(count => count > 1).length;
+    // Get multiArticleClusters from RPC (accurate, calculated in SQL - bypasses row limit)
+    const pipelineStats = pipelineStatsRes.data || {};
+    const multiArticleClusters = pipelineStats.multiArticleClusters || 0;
 
     // Filter validated clusters based on publication rules
     const validatedClusters = candidateClusters.filter(c => {
