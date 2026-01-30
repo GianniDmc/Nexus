@@ -115,7 +115,7 @@ export function AppShell({ children }: AppShellProps) {
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col h-full overflow-hidden overflow-x-hidden relative pb-16 md:pb-0">
         {/* Mobile Header (Minimal) */}
-        <header className="md:hidden flex items-center justify-center p-4 border-b border-border/40 bg-background/80 backdrop-blur-md sticky top-0 z-40">
+        <header className="md:hidden flex items-center justify-center p-4 pt-[calc(1rem+env(safe-area-inset-top))] border-b border-border/40 bg-background/80 backdrop-blur-md sticky top-0 z-40">
           <h1 className="text-xl font-serif font-medium tracking-tighter text-primary">
             Nexus<span className="text-accent">.</span>
           </h1>
