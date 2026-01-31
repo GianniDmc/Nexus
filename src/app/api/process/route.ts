@@ -45,10 +45,6 @@ function normalizeCategory(sourceCategory: string | null): string {
 }
 
 export async function POST(req: NextRequest) {
-  // ... (rest of the file remains unchanged until the usage point)
-
-  // ... inside the clustering loop ...
-
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -294,10 +290,8 @@ export async function POST(req: NextRequest) {
       }
 
       // ═══════════════════════════════════════════════════════════════════
-      // STEP 4: REWRITING & PUBLISHING (WATERFALL LOOP - Careful with limits here)
+      // STEP 4: REWRITING & PUBLISHING (DEEP SEARCH LOOP)
       // ═══════════════════════════════════════════════════════════════════
-      // Note: Rewriting can be expensive and consume quota. We might want to limit this loop strictly 
-      // or at least be very conscious of time.
       while ((step === 'rewriting' || step === 'all') && isTimeSafelyRemaining() && !results.stopped) {
 
         const { data: publishedClusters } = await supabase
@@ -307,32 +301,48 @@ export async function POST(req: NextRequest) {
 
         const publishedClusterIds = new Set(publishedClusters?.map((item) => item.id));
 
-        // Build rewriting query - get more candidates to find ones that pass filters
-        let query = supabase
-          .from('clusters')
-          .select('id, final_score')
-          .gte('final_score', publishThreshold)
-          .eq('is_published', false) // Only unpublished
-          .order('final_score', { ascending: false })
-          .limit(500); // Increased to find clusters that actually pass filters
-
-        const { data: clustersToProcess } = await query;
+        // Deep Search Loop: Continuously fetch batches of clusters until we find enough candidates or hit limits
+        let queryOffset = 0;
+        const queryLimit = 500;
+        const maxScanLimit = 5000; // Safety break to avoid timeout
+        let scannedCount = 0;
         const filteredClusterIds: string[] = [];
         const freshnessCutoff = pubConfig.freshnessCutoff;
 
-        if (!clustersToProcess || clustersToProcess.length === 0) {
-          break; // No more candidates
-        }
+        console.log(`[REWRITE] Starting Deep Search for candidates...`);
 
-        // Batch fetch optimization...
-        const candidateIds = clustersToProcess
-          .filter(c => !publishedClusterIds.has(c.id))
-          .map(c => c.id);
+        while (filteredClusterIds.length < processingLimit && scannedCount < maxScanLimit) {
+          if (await shouldStopProcessing()) { results.stopped = true; break; }
+          if (!isTimeSafelyRemaining()) { results.stopped = true; break; }
 
-        if (candidateIds.length > 0) {
-          // Paginate article fetching to bypass 1000 row limit
+          let query = supabase
+            .from('clusters')
+            .select('id, final_score')
+            .gte('final_score', publishThreshold)
+            .eq('is_published', false)
+            .order('final_score', { ascending: false })
+            .range(queryOffset, queryOffset + queryLimit - 1);
+
+          const { data: batchClusters } = await query;
+
+          if (!batchClusters || batchClusters.length === 0) {
+            console.log(`[REWRITE] No more clusters in DB after offset ${queryOffset}`);
+            break; // End of DB
+          }
+
+          scannedCount += batchClusters.length;
+          queryOffset += queryLimit;
+
+          // Filter out already published IDs (extra safety)
+          const candidateIds = batchClusters
+            .filter(c => !publishedClusterIds.has(c.id))
+            .map(c => c.id);
+
+          if (candidateIds.length === 0) continue;
+
+          // Fetch articles for this batch
           let allArticles: any[] = [];
-          const chunkSize = 100; // Process in chunks to avoid huge IN() queries
+          const chunkSize = 100;
 
           for (let i = 0; i < candidateIds.length; i += chunkSize) {
             const chunk = candidateIds.slice(i, i + chunkSize);
@@ -352,8 +362,11 @@ export async function POST(req: NextRequest) {
             return acc;
           }, {} as Record<string, any[]>);
 
-          for (const cluster of clustersToProcess) {
+          // Apply filters on this batch
+          for (const cluster of batchClusters) {
             if (filteredClusterIds.length >= processingLimit) break;
+
+            // Skip checked in this batch if not in candidateIds (redundant but safe)
             if (!candidateIds.includes(cluster.id)) continue;
 
             const clusterArticles = articlesByCluster[cluster.id] || [];
@@ -380,6 +393,8 @@ export async function POST(req: NextRequest) {
 
             filteredClusterIds.push(cluster.id);
           }
+
+          console.log(`[REWRITE] Scanned ${scannedCount} clusters, found ${filteredClusterIds.length} eligible so far...`);
         }
 
         if (filteredClusterIds.length === 0) {
