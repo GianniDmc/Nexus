@@ -5,6 +5,7 @@ Ce document recense les améliorations techniques et fonctionnelles prévues pou
 ## 🚀 Fonctionnalités Récemment Implémentées
 - [x] **Administration** : Gestionnaire d'articles avec filtres (Publiés, Prêts, etc.), Tri par Score/Date, indicateurs de réécriture IA.
 - [x] **Pipeline** : Suppression des quotas de publication (Publication illimitée pour les articles pertinents).
+- [x] **Vue Éditoriale** : États de Clusters précis (Eligible, Incubating, Pending) avec descriptions contextuelles dans l'admin.
 - [x] **Clustering** : Ajustement du seuil de similarité (0.60 -> 0.75) pour un regroupement plus strict mais équilibré.
 - [x] **Multi-Provider IA** : Interface Admin pour clés OpenAI/Anthropic/Gemini avec sélection automatique des modèles (Fast/Smart).
 - [x] **Analytics Avancés** : Tableaux de bord avec "Pulse 72h" (activité horaire), "Trend 30d" (tendance mensuelle) et Top Sources.

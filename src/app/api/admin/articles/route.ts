@@ -1,6 +1,9 @@
+
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
-import { PUBLICATION_RULES } from '@/lib/publication-rules';
+import { PUBLICATION_RULES, getFreshnessCutoff } from '@/lib/publication-rules';
+
+export const dynamic = 'force-dynamic';
 
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -15,7 +18,30 @@ export async function GET(request: Request) {
         const status = searchParams.get('status') || 'all';
         const search = searchParams.get('search') || '';
 
-        // Query CLUSTERS with explicit foreign key for articles count AND summary
+        console.log(`[API-ADMIN] GET /articles status=${status} page=${page} search='${search}'`);
+
+        // Freshness Logic (Reverse Lookup)
+        let freshClusterIds: string[] | null = null;
+        const needsFreshness = ['eligible', 'incubating', 'archived'].includes(status);
+
+        if (needsFreshness) {
+            const cutoff = getFreshnessCutoff();
+            console.log(`[API-ADMIN] fetching fresh articles since ${cutoff} for status ${status}`);
+            const { data: fresh } = await supabase
+                .from('articles')
+                .select('cluster_id')
+                .gte('published_at', cutoff)
+                .order('published_at', { ascending: false })
+                .limit(500);
+
+            if (fresh) {
+                const unique = Array.from(new Set(fresh.map(a => a.cluster_id).filter(id => id !== null)));
+                // Limit to top 80 to avoid URL length limits
+                freshClusterIds = unique.slice(0, 80) as string[];
+            }
+        }
+
+        // Base Query
         let query = supabase
             .from('clusters')
             .select(`
@@ -24,22 +50,67 @@ export async function GET(request: Request) {
                 summary:summaries!summaries_cluster_id_fkey(*)
             `, { count: 'estimated' });
 
-        // Apply Status Filters
-        if (status === 'relevant') {
-            query = query.gte('final_score', PUBLICATION_RULES.PUBLISH_THRESHOLD);
-        } else if (status === 'low_score') {
-            query = query.lt('final_score', PUBLICATION_RULES.PUBLISH_THRESHOLD).not('final_score', 'is', null);
-        } else if (status === 'pending') {
-            query = query.is('final_score', null);
-        } else if (status === 'ready') {
-            // Ready = Scored >= Threshold, Not Published. 
-            // We apply Score + Published limit used by Cron here. 
-            // Additional checks (Maturity, Sources, Summary) are safer done as post-filter 
-            // because of JOIN complexities with Supabase simple filters.
-            query = query.gte('final_score', PUBLICATION_RULES.PUBLISH_THRESHOLD)
-                .eq('is_published', false);
-        } else if (status === 'published') {
-            query = query.eq('is_published', true);
+        // MUTUALLY EXCLUSIVE FILTERS
+        switch (status) {
+            case 'published':
+                query = query.eq('is_published', true);
+                break;
+
+            case 'ready':
+                // 🔵 Prêts à Publier: Valid Score + Summary + Not Published
+                query = query
+                    .eq('is_published', false)
+                    .gte('final_score', PUBLICATION_RULES.PUBLISH_THRESHOLD)
+                    .not('summary', 'is', null);
+                break;
+
+            case 'eligible':
+                // 🟣 File d'Attente: Fresh + Valid Score + No Summary + Enough Sources
+                if (freshClusterIds) query = query.in('id', freshClusterIds);
+                query = query
+                    .eq('is_published', false)
+                    .gte('final_score', PUBLICATION_RULES.PUBLISH_THRESHOLD)
+                    .is('summary', null);
+                break;
+
+            case 'incubating':
+                // 🟡 Incubation: Fresh + Valid Score + No Summary + (Sources checked in post-filter)
+                if (freshClusterIds) query = query.in('id', freshClusterIds);
+                query = query
+                    .eq('is_published', false)
+                    .gte('final_score', PUBLICATION_RULES.PUBLISH_THRESHOLD)
+                    .is('summary', null);
+                break;
+
+            case 'pending':
+                // ⏳ En Attente (IA): Not scored yet
+                query = query
+                    .eq('is_published', false)
+                    .is('final_score', null);
+                break;
+
+            case 'archived':
+                // 🟤 Archives: Stale + Valid Score + No Summary
+                // Optimized: Instead of "NOT IN fresh", we use "Old date".
+                const cutoff = getFreshnessCutoff();
+                query = query
+                    .eq('is_published', false)
+                    .gte('final_score', PUBLICATION_RULES.PUBLISH_THRESHOLD)
+                    .is('summary', null)
+                    .lt('created_at', cutoff); // Strictly older than cutoff
+                break;
+
+            case 'low_score':
+                // ⚪ Poubelle: Low Score
+                query = query
+                    .eq('is_published', false)
+                    .lt('final_score', PUBLICATION_RULES.PUBLISH_THRESHOLD);
+                break;
+
+            case 'all':
+            default:
+                // No specific filter
+                break;
         }
 
         if (search) {
@@ -48,31 +119,36 @@ export async function GET(request: Request) {
 
         const sort = searchParams.get('sort') || 'created_at';
         const order = searchParams.get('order') || 'desc';
-
-        // Fix sort field mapping
-        let sortField = sort;
-        // if (sort === 'published_at') sortField = 'created_at'; // REMOVED to allow sorting by published_on/published_at if column exists
-        // actually column is 'published_on' in DB, 'created_at' for cluster.
-        // UI sends 'created_at' mostly. If UI sends 'published_on', we use it.
-        // We verify the column exists to avoid SQL injection/errors, but Supabase query builder handles column names safely mostly if valid.
-        // Let's just allow it passing through.
+        const sortField = sort;
 
         const isManualSort = sortField === 'cluster_size';
+        // Pagination Strategy: In-Memory if we apply JS post-filters
+        // New Workflow: 'eligible' and 'incubating' need JS checks for source counts
+        const isPostFiltered = ['eligible', 'incubating'].includes(status);
+        const shouldPaginateInMemory = isManualSort || isPostFiltered;
 
-        // Apply Native Sort if not manual
-        if (!isManualSort) {
+        // Apply Native Sort/Pagination if NOT using In-Memory logic
+        if (!shouldPaginateInMemory) {
             query = query.order(sortField, { ascending: order === 'asc' });
 
             const from = (page - 1) * limit;
             const to = from + limit - 1;
             query = query.range(from, to);
+        } else {
+            // Even for In-Memory, default DB sort helps (e.g. by created_at)
+            // unless isManualSort which overrides it later
+            if (!isManualSort) {
+                query = query.order(sortField, { ascending: order === 'asc' });
+            }
         }
 
-        const { data, error, count } = await query;
+        const { data, error, count: dbCount } = await query;
 
         if (error) throw error;
 
-        // Transform
+        console.log(`[API-ADMIN] DB returned ${data?.length} rows (Total matching DB: ${dbCount})`);
+
+        // Transform & Post-Filter
         let clusters = data?.map((c: any) => ({
             ...c,
             title: c.label,
@@ -85,45 +161,43 @@ export async function GET(request: Request) {
             published_on: c.published_on
         })) || [];
 
-        // Strict Post-Filter for 'ready' status
-        if (status === 'ready') {
-            const now = Date.now();
-            const maturityMillis = PUBLICATION_RULES.CLUSTER_MATURITY_HOURS * 60 * 60 * 1000;
-            const minSources = PUBLICATION_RULES.MIN_SOURCES;
-
-            clusters = clusters.filter((c: any) => {
-                // 1. Must have summary
-                if (!c.summary_short) return false;
-                // 2. Min Sources
-                if (c.cluster_size < minSources) return false;
-                // 3. Maturity
-                const age = now - new Date(c.created_at).getTime();
-                if (age < maturityMillis) return false;
-
-                return true;
-            });
+        // STRICT JS FILTERS (Pipeline Logic) for Source Counts
+        if (status === 'eligible') {
+            const beforeCount = clusters.length;
+            clusters = clusters.filter((c: any) => c.cluster_size >= PUBLICATION_RULES.MIN_SOURCES);
+            console.log(`[API-ADMIN] Post-Filter 'eligible' (Sources >= ${PUBLICATION_RULES.MIN_SOURCES}): ${beforeCount} -> ${clusters.length}`);
+        } else if (status === 'incubating') {
+            const beforeCount = clusters.length;
+            clusters = clusters.filter((c: any) => c.cluster_size < PUBLICATION_RULES.MIN_SOURCES);
+            console.log(`[API-ADMIN] Post-Filter 'incubating' (Sources < ${PUBLICATION_RULES.MIN_SOURCES}): ${beforeCount} -> ${clusters.length}`);
         }
 
-        // Manual Sort & Pagination (if cluster_size)
-        if (isManualSort) {
-            clusters.sort((a, b) => {
-                return order === 'asc'
-                    ? a.cluster_size - b.cluster_size
-                    : b.cluster_size - a.cluster_size;
-            });
-            // Manual Pagination
+        // Calculate Total & Slice (if In-Memory)
+        const total = shouldPaginateInMemory ? clusters.length : (dbCount || 0);
+
+        if (shouldPaginateInMemory) {
+            if (isManualSort) {
+                clusters.sort((a, b) => {
+                    return order === 'asc'
+                        ? a.cluster_size - b.cluster_size
+                        : b.cluster_size - a.cluster_size;
+                });
+            }
+            // Paginate
             const from = (page - 1) * limit;
             clusters = clusters.slice(from, from + limit);
+            console.log(`[API-ADMIN] In-Memory Slice: ${from} to ${from + limit} (Returned: ${clusters.length})`);
         }
 
         return NextResponse.json({
             clusters,
-            total: count,
+            total,
             page,
-            totalPages: count ? Math.ceil(count / limit) : 0
+            totalPages: total ? Math.ceil(total / limit) : 0
         });
 
     } catch (error: any) {
+        console.error("[API-ADMIN] Error:", error);
         return NextResponse.json({ error: error.message }, { status: 500 });
     }
 }

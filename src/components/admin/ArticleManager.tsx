@@ -214,48 +214,70 @@ export function ArticleManager() {
     };
 
     const filterLabels: Record<string, string> = {
-        'all': 'Tous',
-        'published': 'Publiés',
-        'ready': 'Prêts à publier',
-        'relevant': `Pertinents (>=${PUBLICATION_RULES.PUBLISH_THRESHOLD})`,
-        'low_score': 'Rejetés/Faibles',
-        'pending': 'En attente'
+        'published': '🟢 Publiés',
+        'ready': '🔵 À Valider (Prêts)',
+        'eligible': '🟣 File d\'Attente',
+        'incubating': '🟡 En Incubation',
+        'pending': '⏳ En Attente (IA)',
+        'archived': '🟤 Archives / Ratés',
+        'low_score': '⚪ Faible Intérêt',
+        'all': 'Tout'
+    };
+
+    const filterDescriptions: Record<string, string> = {
+        'published': 'Articles déjà publiés sur la plateforme.',
+        'ready': 'Scorés (>8), Résumés, et prêts à être validés manuellement (Score > 8 + Résumé).',
+        'eligible': 'Candidats frais (<48h), Scorés (>8), avec > 2 sources. Prochaine étape : Rédaction IA.',
+        'incubating': 'Candidats frais (<48h) et bons (>8), mais trop petits (< 2 sources). En attente de grossir.',
+        'pending': 'Clusters récents détectés mais pas encore notés par l\'IA.',
+        'archived': 'Ont dépassé la date limite ou erreur technique avant résumé (Score OK, No Summary).',
+        'low_score': 'Rejetés automatiquement (Score < 8).',
+        'all': 'Vue brute de tous les clusters.'
     };
 
     return (
         <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden relative">
             {/* Header / Tools */}
             <div className="p-4 border-b border-border flex flex-col md:flex-row gap-4 justify-between items-center bg-secondary/10">
-                <div className="flex items-center gap-2 overflow-x-auto max-w-full pb-2 md:pb-0 no-scrollbar">
-                    {Object.keys(filterLabels).map(f => (
-                        <button
-                            key={f}
-                            onClick={() => {
-                                setFilter(f);
-                                setPage(1);
-                                if (f === 'published') setSortBy('published_on');
-                                else if (sortBy === 'published_on') setSortBy('created_at');
-                            }}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider whitespace-nowrap transition-colors ${filter === f
-                                ? 'bg-accent text-white shadow-md'
-                                : 'bg-background hover:bg-secondary text-muted-foreground'
-                                }`}
-                        >
-                            {filterLabels[f]}
-                        </button>
-                    ))}
+                <div className="flex flex-col gap-2 w-full">
+                    <div className="flex items-center gap-2 overflow-x-auto max-w-full pb-2 md:pb-0 no-scrollbar">
+                        {Object.keys(filterLabels).map(f => (
+                            <button
+                                key={f}
+                                onClick={() => {
+                                    setFilter(f);
+                                    setPage(1);
+                                    if (f === 'published') setSortBy('published_on');
+                                    else if (sortBy === 'published_on') setSortBy('created_at');
+                                }}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider whitespace-nowrap transition-colors ${filter === f
+                                    ? 'bg-accent text-white shadow-md'
+                                    : 'bg-background hover:bg-secondary text-muted-foreground'
+                                    }`}
+                            >
+                                {filterLabels[f]}
+                            </button>
+                        ))}
+                    </div>
+                    {filterDescriptions[filter] && (
+                        <div className="text-xs text-muted-foreground px-1 italic flex items-center gap-1 mt-1">
+                            <span className="font-semibold">Info :</span> {filterDescriptions[filter]}
+                        </div>
+                    )}
                 </div>
 
-                <form onSubmit={handleSearchSubmit} className="relative w-full md:w-64">
-                    <input
-                        type="text"
-                        placeholder="Rechercher un sujet..."
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                        className="w-full pl-9 pr-4 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:border-accent"
-                    />
-                    <Search className="absolute left-3 top-2.5 w-4 h-4 text-muted" />
-                </form>
+                <div className="hidden md:block">
+                    <form onSubmit={handleSearchSubmit} className="relative w-64">
+                        <input
+                            type="text"
+                            placeholder="Rechercher un sujet..."
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            className="w-full pl-9 pr-4 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:border-accent"
+                        />
+                        <Search className="absolute left-3 top-2.5 w-4 h-4 text-muted" />
+                    </form>
+                </div>
             </div>
 
             {/* Table */}
