@@ -383,9 +383,11 @@ export async function POST(req: NextRequest) {
         }
 
         if (filteredClusterIds.length === 0) {
+          console.log('[REWRITE] No clusters passed filters, breaking');
           break; // No candidates passed filters
         }
 
+        console.log(`[REWRITE] Found ${filteredClusterIds.length} eligible clusters`);
         await updateProgress(results.rewritten, -1, `Démarrage rédaction batch...`);
 
         let processedInBatch = 0;
@@ -395,6 +397,7 @@ export async function POST(req: NextRequest) {
 
           await updateProgress(results.rewritten, -1, `Rédaction: ${results.rewritten} publiés...`);
 
+          console.log(`[REWRITE] Processing cluster ${clusterId.slice(0, 8)}...`);
 
           const { data: sources } = await supabase
             .from('articles')
@@ -402,10 +405,14 @@ export async function POST(req: NextRequest) {
             .eq('cluster_id', clusterId)
             .order('final_score', { ascending: false });
 
+          console.log(`[REWRITE] Cluster ${clusterId.slice(0, 8)} has ${sources?.length || 0} sources`);
+
           if (sources && sources.length > 0) {
             let rewritten = null;
             try {
+              console.log(`[REWRITE] Calling rewriteArticle for cluster ${clusterId.slice(0, 8)}...`);
               rewritten = await rewriteArticle(sources, effectiveConfig);
+              console.log(`[REWRITE] rewriteArticle returned:`, rewritten ? 'success' : 'null');
             } catch (e) {
               console.error(`[REWRITE ERROR] Exception during rewriteArticle:`, e);
             }
