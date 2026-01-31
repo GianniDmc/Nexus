@@ -1,0 +1,41 @@
+stateDiagram-v2
+    direction LR
+
+    state "Articles" as Articles {
+        [*] --> Ingested: /api/ingest
+        Ingested --> Embedded: embedding
+        Embedded --> Clustered: clustering
+        Clustered --> Scored: scoring
+        Scored --> Rewritten: score >= seuil
+        Scored --> Rejected: score < seuil
+        Rewritten --> Published: summary OK
+        Rewritten --> Rejected: rewrite KO
+        Rejected --> [*]
+        Published --> [*]
+    }
+
+    state "Clusters" as Clusters {
+        [*] --> Created: aggreg.
+        
+        Created --> Pending: attente (Trop petit / Trop récent)
+        Pending --> Matured: time >= CLUSTER_MATURITY & Sources >= 2
+        
+        Matured --> Scored: scoring
+        
+        Scored --> Rejected: final_score < seuil
+        Scored --> Summarized: final_score >= seuil (Génération Résumé)
+        
+        Summarized --> Published: Validation Humaine
+        
+        %% Le cas du "mort de vieillesse"
+        Created --> Archived: timeout
+        Pending --> Archived: timeout
+        Matured --> Archived: timeout
+        Scored --> Archived: timeout (jamais résumé)
+        
+        Rejected --> [*]
+        Published --> [*]
+        Archived --> [*]
+    }
+
+    Articles.Published --> Clusters.Created: cluster_id
