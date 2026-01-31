@@ -473,3 +473,22 @@ Adopter une stratégie **"Reverse Lookup"** (Recherche Inversée) :
 -   **Simplicité** : Remplace une boucle paginée complexe par une séquence de 3 requêtes ciblées.
 
 ---
+
+## ADR-026 : Machine à États Éditoriale (Incubating, Eligible, Ready)
+
+### Contexte
+Le système binaire "Publié / Non Publié" était insuffisant pour trier le flux entrant. Les clusters à fort potentiel mais "jeunes" (1 seule source) se mélangeaient aux clusters "faibles" ou "en attente". Il manquait une zone tampon pour laisser grossir les sujets prometteurs.
+
+### Décision
+Formaliser une **Machine à États** stricte pour les clusters, indépendante des articles :
+1.  **Pending** : Nouveau né, en attente de scoring.
+2.  **Low Score** : Rejeté par l'IA (< 8/10).
+3.  **Incubating** : Bon score (>= 8) mais **trop tôt** (1 seule source OU < 6h). On attend.
+4.  **Eligible** : Bon score + **Mature** (> 6h ET >= 2 sources). Prêt pour rédaction.
+5.  **Ready** : Synthèse générée par l'IA. En attente de validation humaine.
+6.  **Published** : Validé et en ligne.
+7.  **Archived** : Était bon mais a expiré (> 48h) avant de devenir Eligible.
+
+### Conséquences
+-   **Positif** : Clarté totale pour l'éditeur. Les sujets prometteurs ne sont plus perdus. Le système "attend" intelligemment qu'une seconde source confirme une info avant de proposer une synthèse.
+-   **Négatif** : Ajoute une complexité logique dans le filtrage (gérée par le script de couverture).
