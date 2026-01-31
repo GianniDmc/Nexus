@@ -139,6 +139,84 @@ export async function GET() {
             });
         }
 
+        // 6b. Daily Ingestion (30 days) - ARTICLES INGÉRÉS avec split par source
+        const dailyIngestion: { date: string; count: number;[source: string]: number | string }[] = [];
+
+        // Pagination pour contourner la limite de 1000 lignes Supabase
+        let allArticles: { created_at: string; source_name: string | null }[] = [];
+        let offset = 0;
+        const pageSize = 1000;
+        let hasMore = true;
+
+        while (hasMore) {
+            const { data: batch, error: batchError } = await supabase
+                .from('articles')
+                .select('created_at, source_name')
+                .gte('created_at', thirtyDaysAgo.toISOString())
+                .order('created_at', { ascending: false })
+                .range(offset, offset + pageSize - 1);
+
+            if (batchError) {
+                console.error('[Analytics] Pagination error:', batchError);
+                break;
+            }
+
+            if (batch && batch.length > 0) {
+                allArticles = allArticles.concat(batch);
+                offset += pageSize;
+                hasMore = batch.length === pageSize;
+            } else {
+                hasMore = false;
+            }
+        }
+
+        // Map: date -> { total, source1: count, source2: count, ... }
+        const ingestionMap: Record<string, Record<string, number>> = {};
+        const allSources = new Set<string>();
+
+        allArticles.forEach(a => {
+            if (!a.created_at) return;
+            const dateKey = new Date(a.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
+            const source = a.source_name || 'Inconnu';
+            allSources.add(source);
+
+            if (!ingestionMap[dateKey]) ingestionMap[dateKey] = { total: 0 };
+            ingestionMap[dateKey].total = (ingestionMap[dateKey].total || 0) + 1;
+            ingestionMap[dateKey][source] = (ingestionMap[dateKey][source] || 0) + 1;
+        });
+
+        // Toutes les sources triées par volume (pour le graphique stacked)
+        const sourceCountsTotal: Record<string, number> = {};
+        allArticles.forEach(a => {
+            const source = a.source_name || 'Inconnu';
+            sourceCountsTotal[source] = (sourceCountsTotal[source] || 0) + 1;
+        });
+        const allSourcesSorted = Object.entries(sourceCountsTotal)
+            .sort((a, b) => b[1] - a[1])
+            .map(([name]) => name);
+
+        for (let i = 29; i >= 0; i--) {
+            const d = new Date(now);
+            d.setDate(d.getDate() - i);
+            const key = d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
+            const dayData = ingestionMap[key] || {};
+
+            const entry: { date: string; count: number;[source: string]: number | string } = {
+                date: key,
+                count: dayData.total || 0,
+            };
+
+            // Ajouter toutes les sources
+            allSourcesSorted.forEach(source => {
+                entry[source] = dayData[source] || 0;
+            });
+
+            dailyIngestion.push(entry);
+        }
+
+        // Liste de toutes les sources pour le graphique (triées par volume)
+        const ingestionSources = allSourcesSorted;
+
         // 7. Hourly Activity (72h) - PUBLICATIONS (Clusters)
         const hourlyActivity: { time: string; count: number }[] = [];
         const seventyTwoHoursAgo = new Date(now.getTime() - 72 * 60 * 60 * 1000);
@@ -192,6 +270,8 @@ export async function GET() {
                 avgSize: avgClusterSize,
             },
             dailyActivity,
+            dailyIngestion,
+            ingestionSources,
             hourlyActivity,
             health: {
                 lastIngestion: lastArticle?.created_at || null,
