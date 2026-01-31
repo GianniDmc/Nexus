@@ -18,6 +18,10 @@ export const metadata: Metadata = {
     statusBarStyle: "black-translucent",
     title: "Nexus",
   },
+  other: {
+    "theme-color": "#0f1115",
+    "background-color": "#0f1115",
+  },
 };
 
 export const viewport = {
