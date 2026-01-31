@@ -30,6 +30,7 @@ Ce document consigne les choix techniques structurants du projet **App Curation 
 | ADR-022 | 2026-01-29 | Workflow Programmatique Supabase "Safe" | Validé |
 | ADR-023 | 2026-01-29 | Environnement de Développement Local Supabase (Docker) | Validé |
 | ADR-024 | 2026-01-31 | Pagination pour contourner la limite 1000 lignes Supabase | Validé |
+| ADR-025 | 2026-01-31 | Stratégie "Reverse Lookup" pour la Sélection des Clusters Candidats | Validé |
 
 ---
 
@@ -453,3 +454,22 @@ while (hasMore) {
 ### Conséquences
 - **Positif** : Données complètes et exactes. Les 66 clusters éligibles sont maintenant correctement identifiés.
 - **Négatif** : Léger surcoût en temps (requêtes multiples), acceptable pour les endpoints admin non-critiques.
+
+## ADR-025 : Stratégie "Reverse Lookup" pour la Sélection des Clusters Candidats
+
+### Contexte
+L'étape de réécriture (Rewriting) doit identifier les clusters éligibles à la publication (Score suffisant, Non publiés, Frais, Sources multiples).
+L'approche initiale "Deep Search" scannait la table `clusters` triée par score. Problème : avec le temps, les clusters à haut score s'accumulent (vieux sujets populaires non publiés), obligeant le système à scanner des milliers de lignes avant de trouver un cluster "frais".
+
+### Décision
+Adopter une stratégie **"Reverse Lookup"** (Recherche Inversée) :
+1.  **Point de départ** : Requêter la table `articles` pour trouver les articles publiés dans la fenêtre de fraîcheur (ex: < 48h).
+2.  **Projection** : Extraire les `cluster_id` uniques de ces articles frais pour ne cibler que les sujets actifs.
+3.  **Vérification** : Récupérer ces clusters pour valider Score et Statut, puis fetcher leur historique complet pour valider la règle multi-sources.
+
+### Conséquences
+-   **Performance optimale** : La complexité dépend du volume d'actualité récente (constant), et non de l'historique total (croissant).
+-   **Qualité** : Élimine le risque de traiter des "faux positifs" (vieux clusters).
+-   **Simplicité** : Remplace une boucle paginée complexe par une séquence de 3 requêtes ciblées.
+
+---
