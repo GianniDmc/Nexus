@@ -290,7 +290,11 @@ export async function POST(req: NextRequest) {
       }
 
       // ═══════════════════════════════════════════════════════════════════
-      // STEP 4: REWRITING & PUBLISHING (DEEP SEARCH LOOP)
+      // STEP 4: REWRITING & PUBLISHING (REVERSE LOOKUP OPTIMIZATION)
+      // Strategies:
+      // 1. Fetch fresh articles (< 48h)
+      // 2. Identify active clusters
+      // 3. Verify criteria (Score, Status, Min Sources)
       // ═══════════════════════════════════════════════════════════════════
       while ((step === 'rewriting' || step === 'all') && isTimeSafelyRemaining() && !results.stopped) {
 
@@ -301,108 +305,116 @@ export async function POST(req: NextRequest) {
 
         const publishedClusterIds = new Set(publishedClusters?.map((item) => item.id));
 
-        // Deep Search Loop: Continuously fetch batches of clusters until we find enough candidates or hit limits
-        let queryOffset = 0;
-        const queryLimit = 500;
-        const maxScanLimit = 5000; // Safety break to avoid timeout
-        let scannedCount = 0;
-        const filteredClusterIds: string[] = [];
+        // 1. Reverse Lookup: Find clusters active recently
         const freshnessCutoff = pubConfig.freshnessCutoff;
+        console.log(`[REWRITE] Reverse Lookup: Finding active clusters since ${freshnessCutoff}...`);
 
-        console.log(`[REWRITE] Starting Deep Search for candidates...`);
+        const potentialClusterIds = new Set<string>();
+        let freshOffset = 0;
+        const freshLimit = 1000;
 
-        while (filteredClusterIds.length < processingLimit && scannedCount < maxScanLimit) {
+        while (true) {
           if (await shouldStopProcessing()) { results.stopped = true; break; }
-          if (!isTimeSafelyRemaining()) { results.stopped = true; break; }
 
-          let query = supabase
+          const { data: freshBatch } = await supabase
+            .from('articles')
+            .select('cluster_id')
+            .gte('published_at', freshnessCutoff)
+            .not('cluster_id', 'is', null)
+            .range(freshOffset, freshOffset + freshLimit - 1);
+
+          if (!freshBatch || freshBatch.length === 0) break;
+
+          freshBatch.forEach(a => {
+            if (a.cluster_id) potentialClusterIds.add(a.cluster_id);
+          });
+
+          if (freshBatch.length < freshLimit) break;
+          freshOffset += freshLimit;
+        }
+
+        const activeClusterIds = Array.from(potentialClusterIds).filter(id => !publishedClusterIds.has(id));
+        console.log(`[REWRITE] Found ${activeClusterIds.length} active unpublished clusters.`);
+
+        if (activeClusterIds.length === 0 || results.stopped) {
+          if (!results.stopped) console.log('[REWRITE] No active clusters found.');
+          break;
+        }
+
+        // 2. Pre-filter active clusters by Score (Batch fetch)
+        const validCandidates: { id: string, final_score: number }[] = [];
+        const chunkSize = 100;
+
+        for (let i = 0; i < activeClusterIds.length; i += chunkSize) {
+          const batchIds = activeClusterIds.slice(i, i + chunkSize);
+          const { data: batchClusters } = await supabase
             .from('clusters')
             .select('id, final_score')
+            .in('id', batchIds)
             .gte('final_score', publishThreshold)
-            .eq('is_published', false)
-            .order('final_score', { ascending: false })
-            .range(queryOffset, queryOffset + queryLimit - 1);
+            .eq('is_published', false);
 
-          const { data: batchClusters } = await query;
+          if (batchClusters) validCandidates.push(...batchClusters);
+        }
 
-          if (!batchClusters || batchClusters.length === 0) {
-            console.log(`[REWRITE] No more clusters in DB after offset ${queryOffset}`);
-            break; // End of DB
+        // Sort candidates by score descending
+        validCandidates.sort((a, b) => b.final_score - a.final_score);
+        console.log(`[REWRITE] ${validCandidates.length} clusters passed score threshold (${publishThreshold}).`);
+
+        if (validCandidates.length === 0) {
+          break;
+        }
+
+        // 3. Full Verification (Fetch all articles for history check)
+        const filteredClusterIds: string[] = [];
+        const candidateIds = validCandidates.map(c => c.id);
+
+        let allArticles: any[] = [];
+        for (let i = 0; i < candidateIds.length; i += chunkSize) {
+          const batchIds = candidateIds.slice(i, i + chunkSize);
+          const { data: batchArticles } = await supabase
+            .from('articles')
+            .select('cluster_id, source_name, published_at')
+            .in('cluster_id', batchIds);
+
+          if (batchArticles) allArticles.push(...batchArticles);
+        }
+
+        const articlesByCluster = allArticles.reduce((acc, art) => {
+          if (!acc[art.cluster_id]) acc[art.cluster_id] = [];
+          acc[art.cluster_id].push(art);
+          return acc;
+        }, {} as Record<string, any[]>);
+
+        for (const cluster of validCandidates) {
+          if (filteredClusterIds.length >= processingLimit) break;
+
+          const clusterArticles = articlesByCluster[cluster.id] || [];
+          if (clusterArticles.length === 0) continue;
+
+          // Maturity Check
+          if (!pubConfig.ignoreMaturity && pubConfig.maturityHours > 0) {
+            clusterArticles.sort((a: any, b: any) => new Date(a.published_at).getTime() - new Date(b.published_at).getTime());
+            const oldestArticleDate = new Date(clusterArticles[0].published_at).getTime();
+            const maturityMillis = pubConfig.maturityHours * 60 * 60 * 1000;
+            if ((Date.now() - oldestArticleDate) < maturityMillis) continue;
           }
 
-          scannedCount += batchClusters.length;
-          queryOffset += queryLimit;
-
-          // Filter out already published IDs (extra safety)
-          const candidateIds = batchClusters
-            .filter(c => !publishedClusterIds.has(c.id))
-            .map(c => c.id);
-
-          if (candidateIds.length === 0) continue;
-
-          // Fetch articles for this batch
-          let allArticles: any[] = [];
-          const chunkSize = 100;
-
-          for (let i = 0; i < candidateIds.length; i += chunkSize) {
-            const chunk = candidateIds.slice(i, i + chunkSize);
-            const { data: chunkArticles } = await supabase
-              .from('articles')
-              .select('cluster_id, source_name, published_at')
-              .in('cluster_id', chunk);
-
-            if (chunkArticles) {
-              allArticles = allArticles.concat(chunkArticles);
-            }
+          // Min Sources Check
+          if (pubConfig.minSources > 1) {
+            const uniqueSources = new Set(clusterArticles.map((a: any) => a.source_name)).size;
+            if (uniqueSources < pubConfig.minSources) continue;
           }
 
-          const articlesByCluster = allArticles.reduce((acc, art) => {
-            if (!acc[art.cluster_id]) acc[art.cluster_id] = [];
-            acc[art.cluster_id].push(art);
-            return acc;
-          }, {} as Record<string, any[]>);
-
-          // Apply filters on this batch
-          for (const cluster of batchClusters) {
-            if (filteredClusterIds.length >= processingLimit) break;
-
-            // Skip checked in this batch if not in candidateIds (redundant but safe)
-            if (!candidateIds.includes(cluster.id)) continue;
-
-            const clusterArticles = articlesByCluster[cluster.id] || [];
-            if (clusterArticles.length === 0) continue;
-
-            // Maturity Check
-            if (!pubConfig.ignoreMaturity && pubConfig.maturityHours > 0) {
-              const oldestArticleDate = new Date(clusterArticles[0].published_at).getTime();
-              const maturityMillis = pubConfig.maturityHours * 60 * 60 * 1000;
-              if ((Date.now() - oldestArticleDate) < maturityMillis) continue;
-            }
-
-            // Freshness Check
-            if (pubConfig.freshOnly) {
-              const hasFreshArticle = clusterArticles.some((a: any) => a.published_at >= freshnessCutoff);
-              if (!hasFreshArticle) continue;
-            }
-
-            // Min Sources Check
-            if (pubConfig.minSources > 1) {
-              const uniqueSources = new Set(clusterArticles.map((a: any) => a.source_name)).size;
-              if (uniqueSources < pubConfig.minSources) continue;
-            }
-
-            filteredClusterIds.push(cluster.id);
-          }
-
-          console.log(`[REWRITE] Scanned ${scannedCount} clusters, found ${filteredClusterIds.length} eligible so far...`);
+          filteredClusterIds.push(cluster.id);
         }
 
         if (filteredClusterIds.length === 0) {
-          console.log('[REWRITE] No clusters passed filters, breaking');
-          break; // No candidates passed filters
+          console.log('[REWRITE] No clusters passed final filters (Sources/Maturity).');
+          break;
         }
 
-        console.log(`[REWRITE] Found ${filteredClusterIds.length} eligible clusters`);
+        console.log(`[REWRITE] Found ${filteredClusterIds.length} eligible clusters ready for rewriting.`);
         await updateProgress(results.rewritten, -1, `Démarrage rédaction batch...`);
 
         let processedInBatch = 0;
