@@ -307,14 +307,14 @@ export async function POST(req: NextRequest) {
 
         const publishedClusterIds = new Set(publishedClusters?.map((item) => item.id));
 
-        // Build rewriting query
+        // Build rewriting query - get more candidates to find ones that pass filters
         let query = supabase
           .from('clusters')
           .select('id, final_score')
           .gte('final_score', publishThreshold)
           .eq('is_published', false) // Only unpublished
           .order('final_score', { ascending: false })
-          .limit(processingLimit * 5);
+          .limit(500); // Increased to find clusters that actually pass filters
 
         const { data: clustersToProcess } = await query;
         const filteredClusterIds: string[] = [];
@@ -330,13 +330,23 @@ export async function POST(req: NextRequest) {
           .map(c => c.id);
 
         if (candidateIds.length > 0) {
-          const { data: allArticles } = await supabase
-            .from('articles')
-            .select('cluster_id, source_name, published_at')
-            .in('cluster_id', candidateIds)
-            .order('published_at', { ascending: true });
+          // Paginate article fetching to bypass 1000 row limit
+          let allArticles: any[] = [];
+          const chunkSize = 100; // Process in chunks to avoid huge IN() queries
 
-          const articlesByCluster = (allArticles || []).reduce((acc, art) => {
+          for (let i = 0; i < candidateIds.length; i += chunkSize) {
+            const chunk = candidateIds.slice(i, i + chunkSize);
+            const { data: chunkArticles } = await supabase
+              .from('articles')
+              .select('cluster_id, source_name, published_at')
+              .in('cluster_id', chunk);
+
+            if (chunkArticles) {
+              allArticles = allArticles.concat(chunkArticles);
+            }
+          }
+
+          const articlesByCluster = allArticles.reduce((acc, art) => {
             if (!acc[art.cluster_id]) acc[art.cluster_id] = [];
             acc[art.cluster_id].push(art);
             return acc;
