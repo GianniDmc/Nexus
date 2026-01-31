@@ -47,7 +47,16 @@ Définies dans `src/lib/publication-rules.ts` et réutilisées par l'admin + l'A
 - **Maturité cluster** : `CLUSTER_MATURITY_HOURS = 6`
 - **Ingestion max age** : `INGESTION_MAX_AGE_HOURS = 720` (30 jours)
 
+
 Les valeurs peuvent être **surchargées** par l'admin via query/body (`freshOnly`, `minSources`, `publishThreshold`, `ignoreMaturity`).
+
+### Cycle de Vie Éditorial (State Machine)
+Les clusters évoluent selon une machine à états stricte (voir `docs/STATE_GRAPH.md`) :
+1. **Pending** : En attente de scoring.
+2. **Incubating** : Score OK mais < 2 sources ou trop récent (< 6h).
+3. **Eligible** : Score OK + Mature + Multi-sources. Cible pour l'IA.
+4. **Ready** : Résumé généré, en attente de validation humaine.
+5. **Published** : En ligne.
 
 ## 4. Gestion des Processus
 
