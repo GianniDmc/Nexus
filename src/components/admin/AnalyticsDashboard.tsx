@@ -182,71 +182,58 @@ export function AnalyticsDashboard() {
 
                 {showIngestionBySource ? (
                     <div className="overflow-x-auto">
-                        <div className="min-w-max">
-                            {/* Header avec les dates */}
-                            <div className="flex mb-1">
-                                <div className="w-32 flex-shrink-0" /> {/* Espace pour les noms de sources */}
-                                {data.dailyIngestion.map((day) => (
-                                    <div key={day.date} className="w-6 text-[8px] text-muted text-center transform -rotate-45 origin-bottom-left h-8">
-                                        {day.date}
-                                    </div>
-                                ))}
-                            </div>
-
-                            {/* Grid des sources */}
-                            <div className="max-h-96 overflow-y-auto space-y-px">
+                        <table className="w-full border-collapse text-[10px]">
+                            <thead>
+                                <tr>
+                                    <th className="text-left py-2 px-2 text-muted font-normal sticky left-0 bg-card z-10 min-w-24">Source</th>
+                                    {data.dailyIngestion.slice(-14).map((day) => (
+                                        <th key={day.date} className="text-center py-2 px-1 text-muted font-normal min-w-8">
+                                            {day.date.split('/')[0]}
+                                        </th>
+                                    ))}
+                                    <th className="text-right py-2 px-2 text-muted font-normal">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
                                 {data.ingestionSources.map((source) => {
-                                    // Calculer le max pour cette source pour normaliser
-                                    const maxForSource = Math.max(...data.dailyIngestion.map(d => (d[source] as number) || 0));
+                                    const last14Days = data.dailyIngestion.slice(-14);
+                                    const sourceTotal = last14Days.reduce((sum, d) => sum + ((d[source] as number) || 0), 0);
+                                    const maxForSource = Math.max(...last14Days.map(d => (d[source] as number) || 0));
 
                                     return (
-                                        <div key={source} className="flex items-center group">
-                                            <div className="w-32 flex-shrink-0 text-[10px] text-muted truncate pr-2" title={source}>
+                                        <tr key={source} className="hover:bg-secondary/20">
+                                            <td className="py-1 px-2 text-muted truncate sticky left-0 bg-card max-w-24" title={source}>
                                                 {source}
-                                            </div>
-                                            {data.dailyIngestion.map((day) => {
+                                            </td>
+                                            {last14Days.map((day) => {
                                                 const count = (day[source] as number) || 0;
                                                 const intensity = maxForSource > 0 ? count / maxForSource : 0;
 
                                                 return (
-                                                    <div
-                                                        key={`${source}-${day.date}`}
-                                                        className="w-6 h-5 flex-shrink-0 rounded-sm mx-px cursor-pointer transition-all hover:scale-125 hover:z-10 relative group/cell"
-                                                        style={{
-                                                            backgroundColor: count === 0
-                                                                ? 'rgba(100, 100, 100, 0.1)'
-                                                                : `rgba(168, 85, 247, ${0.2 + intensity * 0.8})`,
-                                                        }}
-                                                        title={`${source}: ${count} articles le ${day.date}`}
-                                                    >
-                                                        {count > 0 && (
-                                                            <span className="absolute inset-0 flex items-center justify-center text-[7px] font-bold text-white opacity-0 group-hover/cell:opacity-100">
-                                                                {count}
-                                                            </span>
-                                                        )}
-                                                    </div>
+                                                    <td key={`${source}-${day.date}`} className="py-1 px-0.5 text-center">
+                                                        <div
+                                                            className="w-7 h-6 rounded flex items-center justify-center text-[9px] font-medium mx-auto"
+                                                            style={{
+                                                                backgroundColor: count === 0
+                                                                    ? 'rgba(100, 100, 100, 0.1)'
+                                                                    : `rgba(168, 85, 247, ${0.25 + intensity * 0.75})`,
+                                                                color: count > 0 ? '#fff' : 'transparent',
+                                                            }}
+                                                            title={`${source}: ${count} articles le ${day.date}`}
+                                                        >
+                                                            {count > 0 ? count : ''}
+                                                        </div>
+                                                    </td>
                                                 );
                                             })}
-                                        </div>
+                                            <td className="py-1 px-2 text-right text-purple-400 font-medium">
+                                                {sourceTotal}
+                                            </td>
+                                        </tr>
                                     );
                                 })}
-                            </div>
-
-                            {/* Légende */}
-                            <div className="flex items-center gap-2 mt-4 text-[10px] text-muted">
-                                <span>Moins</span>
-                                <div className="flex gap-px">
-                                    {[0.1, 0.3, 0.5, 0.7, 1].map((opacity) => (
-                                        <div
-                                            key={opacity}
-                                            className="w-4 h-3 rounded-sm"
-                                            style={{ backgroundColor: `rgba(168, 85, 247, ${opacity})` }}
-                                        />
-                                    ))}
-                                </div>
-                                <span>Plus</span>
-                            </div>
-                        </div>
+                            </tbody>
+                        </table>
                     </div>
                 ) : (
                     <div className="h-48">

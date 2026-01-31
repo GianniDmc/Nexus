@@ -520,7 +520,10 @@ export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
                                                 style={{ width: `${serverRunning.progress.total > 0 ? (serverRunning.progress.current / serverRunning.progress.total) * 100 : 0}%` }}
                                             />
                                         </div>
-                                        <p className="mt-1 text-xs text-muted">{serverRunning.progress.current} / {serverRunning.progress.total}</p>
+                                        <p className="mt-1 text-xs text-muted">
+                                            {serverRunning.progress.current}
+                                            {serverRunning.progress.total > 0 && ` / ${serverRunning.progress.total}`}
+                                        </p>
                                     </div>
                                     : <span className="text-accent animate-pulse">Traitement en cours...</span>
                                 : progress.current === -1

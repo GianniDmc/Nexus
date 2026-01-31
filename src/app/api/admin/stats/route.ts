@@ -1,9 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import {
-  PUBLICATION_RULES,
   getPublicationConfig,
-  getFreshnessCutoff
 } from '@/lib/publication-rules';
 
 export const dynamic = 'force-dynamic';
@@ -17,8 +15,6 @@ export async function GET(req: Request) {
     minSources: searchParams.has('minSources') ? parseInt(searchParams.get('minSources')!) : undefined,
     publishThreshold: searchParams.has('minScore') ? parseFloat(searchParams.get('minScore')!) : undefined,
   });
-
-  const bypassRPC = true; // FORCE BYPASS RPC to use new logic (Cluster-Centric)
 
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -35,8 +31,6 @@ export async function GET(req: Request) {
       supabase.from('clusters').select('id').is('final_score', null),
       // candidateClustersRes
       supabase.from('clusters').select('id').gte('final_score', publishThreshold).eq('is_published', false),
-      // allClusterArticlesRes
-      supabase.from('articles').select('cluster_id, source_name, published_at').not('cluster_id', 'is', null).limit(20000),
       // publishedClustersRes
       supabase.from('clusters').select('*', { count: 'exact', head: true }).eq('is_published', true),
       // totalClustersRes
@@ -61,7 +55,7 @@ export async function GET(req: Request) {
       supabase.from('clusters').select('*', { count: 'exact', head: true }).lt('final_score', publishThreshold).not('final_score', 'is', null),
       // scoredClustersCountRes
       supabase.from('clusters').select('*', { count: 'exact', head: true }).not('final_score', 'is', null),
-      // pipelineStatsRes - Use RPC to get multiArticleClusters count directly from SQL (bypasses row limit)
+      // pipelineStatsRes - Use RPC to get multiArticleClusters count directly from SQL
       supabase.rpc('get_pipeline_stats')
     ];
 
@@ -69,7 +63,6 @@ export async function GET(req: Request) {
     const [
       unscoredClustersRes,
       candidateClustersRes,
-      allClusterArticlesRes,
       publishedClustersRes,
       totalClustersRes,
       pendingScoringArticlesCountRes,
@@ -87,14 +80,34 @@ export async function GET(req: Request) {
 
     // 3. Process candidate clusters and articles for publication stats
     const candidateClusters = (candidateClustersRes.data as any[]) || [];
-    const allClusterArticles = (allClusterArticlesRes.data as any[]) || [];
     const candidateIdSet = new Set(candidateClusters.map((c: any) => c.id));
 
-    // Group articles by cluster for candidate filtering (limited data, but OK for filtering)
+    // Paginate to get ALL cluster articles (bypass 1000 row limit)
+    let allClusterArticles: any[] = [];
+    let offset = 0;
+    const pageSize = 1000;
+    let hasMore = true;
+
+    while (hasMore) {
+      const { data: batch } = await supabase
+        .from('articles')
+        .select('cluster_id, source_name, published_at')
+        .not('cluster_id', 'is', null)
+        .range(offset, offset + pageSize - 1);
+
+      if (batch && batch.length > 0) {
+        allClusterArticles = allClusterArticles.concat(batch);
+        offset += pageSize;
+        hasMore = batch.length === pageSize;
+      } else {
+        hasMore = false;
+      }
+    }
+
+    // Group articles by cluster for candidate filtering
     const articlesByCluster: Record<string, any[]> = {};
 
     allClusterArticles.forEach(a => {
-      // For candidates filtering
       if (candidateIdSet.has(a.cluster_id)) {
         if (!articlesByCluster[a.cluster_id]) articlesByCluster[a.cluster_id] = [];
         articlesByCluster[a.cluster_id].push(a);
