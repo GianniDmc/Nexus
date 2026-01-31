@@ -510,25 +510,18 @@ export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
                                     </div>
                                 )}
                             </div>
-                            : !progress
-                                ? serverRunning.progress && (runningStep === serverRunning.step)
-                                    ? <div className="text-sm">
-                                        <p className="mb-2 text-accent animate-pulse">{serverRunning.progress.label}</p>
-                                        <div className="w-full bg-secondary h-2 rounded-full overflow-hidden">
-                                            <div
-                                                className="bg-accent h-full transition-all duration-300"
-                                                style={{ width: `${serverRunning.progress.total > 0 ? (serverRunning.progress.current / serverRunning.progress.total) * 100 : 0}%` }}
-                                            />
-                                        </div>
-                                        <p className="mt-1 text-xs text-muted">
-                                            {serverRunning.progress.current}
-                                            {serverRunning.progress.total > 0 && ` / ${serverRunning.progress.total}`}
-                                        </p>
-                                    </div>
-                                    : <span className="text-accent animate-pulse">Traitement en cours...</span>
-                                : progress.current === -1
-                                    ? <span className="text-yellow-500">⏳ Rate Limit...</span>
-                                    : <>{progress.total} traités</>}
+                            : serverRunning.progress
+                                ? <div className="text-sm">
+                                    <p className="mb-2 text-accent animate-pulse">{serverRunning.progress.label}</p>
+                                    <p className="text-2xl font-mono">
+                                        {serverRunning.progress.current} traités
+                                    </p>
+                                </div>
+                                : progress
+                                    ? progress.current === -1
+                                        ? <span className="text-yellow-500">⏳ Rate Limit...</span>
+                                        : <>{progress.total} traités</>
+                                    : <span className="text-accent animate-pulse">Traitement en cours...</span>}
                     </div>
                 </div>
             )}
