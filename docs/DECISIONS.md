@@ -29,6 +29,7 @@ Ce document consigne les choix techniques structurants du projet **App Curation 
 | ADR-021 | 2026-01-29 | Restauration et Amélioration de la Gestion des Articles Bruts (CMS) | Validé |
 | ADR-022 | 2026-01-29 | Workflow Programmatique Supabase "Safe" | Validé |
 | ADR-023 | 2026-01-29 | Environnement de Développement Local Supabase (Docker) | Validé |
+| ADR-024 | 2026-01-31 | Pagination pour contourner la limite 1000 lignes Supabase | Validé |
 
 ---
 
@@ -409,3 +410,46 @@ Mettre en place une instance **Supabase Local** via Docker (`supabase start`).
 - **Positif** : Sécurité maximale pour le dev (0 risque pour la prod). Tests E2E possibles sans latence réseau. Accès complet à un Supabase Studio local.
 - **Négatif** : Nécessite Docker Desktop. Consomme des ressources machine (~1-2GB RAM).
 
+---
+
+## ADR-024 : Pagination pour contourner la limite 1000 lignes Supabase
+
+### Contexte
+Supabase impose une limite serveur de **1000 lignes** par requête, indépendamment du `.limit()` spécifié côté client. Cette limite affectait silencieusement les requêtes volumineuses, notamment :
+- `analytics/route.ts` : comptage des articles ingérés sur 30 jours (~5000 articles)
+- `stats/route.ts` : récupération des articles avec cluster_id pour le calcul des clusters éligibles à publication
+
+Le bug se manifestait par des compteurs erronés (clusters éligibles à 0 alors qu'il y en avait 66) et des graphiques incomplets.
+
+### Décision
+Implémenter une **boucle de pagination** systématique pour les requêtes volumineuses :
+
+```typescript
+let allItems: any[] = [];
+let offset = 0;
+const pageSize = 1000;
+let hasMore = true;
+
+while (hasMore) {
+  const { data: batch } = await supabase
+    .from('table')
+    .select('...')
+    .range(offset, offset + pageSize - 1);
+
+  if (batch && batch.length > 0) {
+    allItems = allItems.concat(batch);
+    offset += pageSize;
+    hasMore = batch.length === pageSize;
+  } else {
+    hasMore = false;
+  }
+}
+```
+
+### Fichiers impactés
+- `src/app/api/admin/stats/route.ts` : pagination pour récupérer tous les articles avec cluster_id
+- `src/app/api/admin/analytics/route.ts` : pagination pour l'ingestion sur 30 jours
+
+### Conséquences
+- **Positif** : Données complètes et exactes. Les 66 clusters éligibles sont maintenant correctement identifiés.
+- **Négatif** : Léger surcoût en temps (requêtes multiples), acceptable pour les endpoints admin non-critiques.
