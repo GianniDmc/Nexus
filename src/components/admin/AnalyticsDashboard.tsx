@@ -24,6 +24,8 @@ interface AnalyticsData {
     topSources: { name: string; count: number }[];
     clusters: { total: number; multiArticle: number; avgSize: string };
     dailyActivity: { date: string; count: number }[];
+    dailyIngestion: { date: string; count: number;[source: string]: number | string }[];
+    ingestionSources: string[];
     hourlyActivity: { time: string; count: number }[];
     health: { lastIngestion: string | null; lastSource: string | null };
 }
@@ -34,6 +36,7 @@ export function AnalyticsDashboard() {
     const [data, setData] = useState<AnalyticsData | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [showIngestionBySource, setShowIngestionBySource] = useState(false);
 
     const fetchAnalytics = async () => {
         try {
@@ -153,6 +156,119 @@ export function AnalyticsDashboard() {
                         </AreaChart>
                     </ResponsiveContainer>
                 </div>
+            </div>
+
+            {/* Ingestion par jour - Heatmap */}
+            <div className="bg-card border border-border rounded-xl p-6">
+                <div className="flex items-center justify-between mb-1">
+                    <h3 className="text-sm font-bold uppercase tracking-wider text-primary flex items-center gap-2">
+                        <Database className="w-4 h-4 text-purple-500" /> Ingestion par Source (30 jours)
+                    </h3>
+                    <button
+                        onClick={() => setShowIngestionBySource(!showIngestionBySource)}
+                        className={`text-xs px-3 py-1 rounded-full transition-colors ${showIngestionBySource
+                            ? 'bg-purple-500/20 text-purple-400'
+                            : 'bg-secondary/50 text-muted hover:bg-secondary'
+                            }`}
+                    >
+                        {showIngestionBySource ? 'Heatmap' : 'Courbe totale'}
+                    </button>
+                </div>
+                <p className="text-[10px] text-muted-foreground mb-4">
+                    {showIngestionBySource
+                        ? 'Heatmap : intensité de couleur = volume d\'articles. Scroll horizontal pour voir tous les jours.'
+                        : 'Nombre total d\'articles ingérés par jour depuis les flux RSS.'}
+                </p>
+
+                {showIngestionBySource ? (
+                    <div className="overflow-x-auto">
+                        <div className="min-w-max">
+                            {/* Header avec les dates */}
+                            <div className="flex mb-1">
+                                <div className="w-32 flex-shrink-0" /> {/* Espace pour les noms de sources */}
+                                {data.dailyIngestion.map((day) => (
+                                    <div key={day.date} className="w-6 text-[8px] text-muted text-center transform -rotate-45 origin-bottom-left h-8">
+                                        {day.date}
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* Grid des sources */}
+                            <div className="max-h-96 overflow-y-auto space-y-px">
+                                {data.ingestionSources.map((source) => {
+                                    // Calculer le max pour cette source pour normaliser
+                                    const maxForSource = Math.max(...data.dailyIngestion.map(d => (d[source] as number) || 0));
+
+                                    return (
+                                        <div key={source} className="flex items-center group">
+                                            <div className="w-32 flex-shrink-0 text-[10px] text-muted truncate pr-2" title={source}>
+                                                {source}
+                                            </div>
+                                            {data.dailyIngestion.map((day) => {
+                                                const count = (day[source] as number) || 0;
+                                                const intensity = maxForSource > 0 ? count / maxForSource : 0;
+
+                                                return (
+                                                    <div
+                                                        key={`${source}-${day.date}`}
+                                                        className="w-6 h-5 flex-shrink-0 rounded-sm mx-px cursor-pointer transition-all hover:scale-125 hover:z-10 relative group/cell"
+                                                        style={{
+                                                            backgroundColor: count === 0
+                                                                ? 'rgba(100, 100, 100, 0.1)'
+                                                                : `rgba(168, 85, 247, ${0.2 + intensity * 0.8})`,
+                                                        }}
+                                                        title={`${source}: ${count} articles le ${day.date}`}
+                                                    >
+                                                        {count > 0 && (
+                                                            <span className="absolute inset-0 flex items-center justify-center text-[7px] font-bold text-white opacity-0 group-hover/cell:opacity-100">
+                                                                {count}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            {/* Légende */}
+                            <div className="flex items-center gap-2 mt-4 text-[10px] text-muted">
+                                <span>Moins</span>
+                                <div className="flex gap-px">
+                                    {[0.1, 0.3, 0.5, 0.7, 1].map((opacity) => (
+                                        <div
+                                            key={opacity}
+                                            className="w-4 h-3 rounded-sm"
+                                            style={{ backgroundColor: `rgba(168, 85, 247, ${opacity})` }}
+                                        />
+                                    ))}
+                                </div>
+                                <span>Plus</span>
+                            </div>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="h-48">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart data={data.dailyIngestion}>
+                                <defs>
+                                    <linearGradient id="colorIngestion" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="5%" stopColor="#a855f7" stopOpacity={0.3} />
+                                        <stop offset="95%" stopColor="#a855f7" stopOpacity={0} />
+                                    </linearGradient>
+                                </defs>
+                                <XAxis dataKey="date" tick={{ fontSize: 9 }} minTickGap={15} stroke="#666" />
+                                <YAxis tick={{ fontSize: 10 }} stroke="#666" />
+                                <Tooltip
+                                    contentStyle={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 8 }}
+                                    labelStyle={{ color: '#fff' }}
+                                />
+                                <Area type="monotone" dataKey="count" stroke="#a855f7" fill="url(#colorIngestion)" strokeWidth={2} />
+                            </AreaChart>
+                        </ResponsiveContainer>
+                    </div>
+                )}
             </div>
 
             {/* Charts Grid: Trend + Scores */}
