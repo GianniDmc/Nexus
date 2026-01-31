@@ -38,6 +38,13 @@ body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   -webkit-font-smoothing: antialiased;
   transition: background-color 0.3s ease, color 0.3s ease;
+  /* PWA safe-area support */
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+html {
+  background-color: var(--background);
 }
 
 .zen-card {
