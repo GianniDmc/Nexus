@@ -4,7 +4,8 @@ import { useEffect, useState, useMemo, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useSearchParams } from 'next/navigation';
 import { Sparkles, ChevronRight, ExternalLink, Filter, ArrowUpDown, Bookmark, Check, Archive, EyeOff, Newspaper, Eye, RefreshCw } from 'lucide-react';
-import { motion, AnimatePresence, useAnimation } from 'framer-motion';
+import { motion, AnimatePresence, useSpring, useMotionValue } from 'framer-motion';
+import { useDrag } from '@use-gesture/react';
 import { SwipeableArticleCard } from './SwipeableArticleCard';
 
 type SortOption = 'date' | 'score';
@@ -95,15 +96,59 @@ export default function NewsFeed() {
     };
   }, [selectedId, isDesktop]);
 
-  // Animation controls for article panel
-  const articlePanelControls = useAnimation();
+  // Motion value for article panel position
+  const panelX = useMotionValue(0);
+  const springX = useSpring(panelX, { damping: 30, stiffness: 300 });
 
   // Animate panel in when article is selected
   useEffect(() => {
     if (selectedId) {
-      articlePanelControls.start({ x: 0 });
+      panelX.set(0);
     }
-  }, [selectedId, articlePanelControls]);
+  }, [selectedId, panelX]);
+
+  // Swipe gesture handler using @use-gesture/react
+  const bind = useDrag(
+    ({ active, movement: [mx], velocity: [vx], direction: [dx] }) => {
+      if (isDesktop) return;
+
+      // Only allow rightward swipes (positive x)
+      if (mx < 0) {
+        panelX.set(0);
+        return;
+      }
+
+      if (active) {
+        // Follow the finger
+        panelX.set(mx);
+      } else {
+        // Gesture ended - determine if we should close or snap back
+        const shouldClose = mx > 100 || (vx > 0.5 && dx > 0);
+
+        if (shouldClose) {
+          // Animate off screen then close
+          panelX.set(window.innerWidth);
+          setTimeout(() => setSelectedId(null), 200);
+        } else {
+          // Snap back
+          panelX.set(0);
+        }
+      }
+    },
+    {
+      axis: 'x',
+      filterTaps: true,
+      from: () => [panelX.get(), 0],
+      bounds: { left: 0 },
+      rubberband: 0.1,
+    }
+  );
+
+  // Extract only the event handlers we need, excluding onDrag which conflicts with Framer Motion
+  const bindDrag = () => {
+    const { onDrag, ...rest } = bind() as Record<string, unknown>;
+    return rest;
+  };
   const [sortBy, setSortBy] = useState<SortOption>('date');
 
   // User interaction states (localStorage)
@@ -561,39 +606,15 @@ export default function NewsFeed() {
       <AnimatePresence mode="wait">
         {(selectedArticle || (typeof window !== 'undefined' && window.innerWidth >= 1024)) && (
           <motion.div
+            {...bindDrag()}
             initial={{ x: '100%' }}
-            animate={articlePanelControls}
+            animate={isDesktop ? { x: 0 } : undefined}
             exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-            drag={isDesktop ? false : "x"}
-            dragConstraints={{ left: 0 }}
-            dragElastic={0.05}
-            onDragStart={() => {
-              // Ensure we start from x: 0
-              articlePanelControls.set({ x: 0 });
+            style={{
+              x: isDesktop ? undefined : springX,
+              touchAction: isDesktop ? 'auto' : 'none'
             }}
-            onDragEnd={(_, info) => {
-              // Close if dragged more than 100px OR if flicked fast enough
-              if (info.offset.x > 100 || info.velocity.x > 500) {
-                articlePanelControls.start({ x: '100%' }).then(() => {
-                  setSelectedId(null);
-                });
-              } else {
-                // Snap back to origin
-                articlePanelControls.start({ x: 0 });
-              }
-            }}
-            // Fallback: if drag is cancelled by browser (e.g. vertical scroll detected), snap back
-            onPointerCancel={() => {
-              articlePanelControls.start({ x: 0 });
-            }}
-            onTouchEnd={() => {
-              // Delayed snap-back as a safety net (only if not at x:0 or x:100%)
-              setTimeout(() => {
-                articlePanelControls.start({ x: 0 });
-              }, 50);
-            }}
-            style={{ touchAction: isDesktop ? 'auto' : 'none' }}
             className={`
             lg:col-span-8 h-full overflow-hidden flex flex-col bg-background shadow-2xl lg:shadow-none
             ${selectedArticle ? 'fixed inset-0 z-[100] lg:static lg:z-auto lg:relative' : 'hidden lg:flex lg:relative'}
