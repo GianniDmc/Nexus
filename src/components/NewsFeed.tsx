@@ -63,6 +63,18 @@ export default function NewsFeed() {
     window.addEventListener('resize', checkDesktop);
     return () => window.removeEventListener('resize', checkDesktop);
   }, []);
+
+  // Lock body scroll when article detail is open on mobile
+  useEffect(() => {
+    if (selectedId && !isDesktop) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [selectedId, isDesktop]);
   const [sortBy, setSortBy] = useState<SortOption>('date');
 
   // User interaction states (localStorage)
@@ -531,6 +543,7 @@ export default function NewsFeed() {
                 setSelectedId(null);
               }
             }}
+            style={{ touchAction: isDesktop ? 'auto' : 'pan-y' }}
             className={`
             lg:col-span-8 h-full overflow-hidden flex flex-col bg-background shadow-2xl lg:shadow-none
             ${selectedArticle ? 'fixed inset-0 z-[100] lg:static lg:z-auto lg:relative' : 'hidden lg:flex lg:relative'}
