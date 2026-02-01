@@ -4,8 +4,7 @@ import { useEffect, useState, useMemo, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useSearchParams } from 'next/navigation';
 import { Sparkles, ChevronRight, ExternalLink, Filter, ArrowUpDown, Bookmark, Check, Archive, EyeOff, Newspaper, Eye, RefreshCw } from 'lucide-react';
-import { motion, AnimatePresence, useSpring, useMotionValue } from 'framer-motion';
-import { useDrag } from '@use-gesture/react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { SwipeableArticleCard } from './SwipeableArticleCard';
 
 type SortOption = 'date' | 'score';
@@ -96,60 +95,6 @@ export default function NewsFeed() {
     };
   }, [selectedId, isDesktop]);
 
-  // Motion value for article panel position
-  const panelX = useMotionValue(0);
-  const springX = useSpring(panelX, { damping: 30, stiffness: 300 });
-
-  // Reset panel position immediately when article is selected
-  useEffect(() => {
-    if (selectedId) {
-      // Use jump() for instant reset without animation
-      panelX.jump(0);
-    }
-  }, [selectedId, panelX]);
-
-  // Swipe gesture handler using @use-gesture/react
-  const bind = useDrag(
-    ({ active, movement: [mx], velocity: [vx], direction: [dx] }) => {
-      if (isDesktop) return;
-
-      // Only allow rightward swipes (positive x)
-      if (mx < 0) {
-        panelX.set(0);
-        return;
-      }
-
-      if (active) {
-        // Follow the finger
-        panelX.set(mx);
-      } else {
-        // Gesture ended - determine if we should close or snap back
-        // Distance > 120px OR fast swipe (vx > 0.8) with minimum 30px movement
-        const shouldClose = mx > 120 || (vx > 0.8 && dx > 0 && mx > 30);
-
-        if (shouldClose) {
-          // Animate off screen then close
-          panelX.set(window.innerWidth);
-          setTimeout(() => setSelectedId(null), 200);
-        } else {
-          // Snap back
-          panelX.set(0);
-        }
-      }
-    },
-    {
-      axis: 'lock', // Detect direction on first move, then lock - more forgiving than 'x'
-      filterTaps: true,
-      from: () => [0, 0], // Always start from 0
-      threshold: 10, // Minimum movement before gesture activates
-    }
-  );
-
-  // Extract only the event handlers we need, excluding onDrag which conflicts with Framer Motion
-  const bindDrag = () => {
-    const { onDrag, ...rest } = bind() as Record<string, unknown>;
-    return rest;
-  };
   const [sortBy, setSortBy] = useState<SortOption>('date');
 
   // User interaction states (localStorage)
@@ -607,15 +552,10 @@ export default function NewsFeed() {
       <AnimatePresence mode="wait">
         {(selectedArticle || (typeof window !== 'undefined' && window.innerWidth >= 1024)) && (
           <motion.div
-            {...bindDrag()}
             initial={{ x: '100%' }}
-            animate={isDesktop ? { x: 0 } : undefined}
+            animate={{ x: 0 }}
             exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-            style={{
-              x: isDesktop ? undefined : springX,
-              touchAction: isDesktop ? 'auto' : 'none'
-            }}
             className={`
             lg:col-span-8 h-full overflow-hidden flex flex-col bg-background shadow-2xl lg:shadow-none
             ${selectedArticle ? 'fixed inset-0 z-[100] lg:static lg:z-auto lg:relative' : 'hidden lg:flex lg:relative'}
