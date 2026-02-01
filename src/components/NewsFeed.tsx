@@ -123,7 +123,8 @@ export default function NewsFeed() {
         panelX.set(mx);
       } else {
         // Gesture ended - determine if we should close or snap back
-        const shouldClose = mx > 100 || (vx > 0.5 && dx > 0);
+        // Require significant swipe: >150px distance OR fast velocity (>1.0) in right direction
+        const shouldClose = mx > 150 || (vx > 1.0 && dx > 0 && mx > 50);
 
         if (shouldClose) {
           // Animate off screen then close
