@@ -583,6 +583,16 @@ export default function NewsFeed() {
                 articlePanelControls.start({ x: 0 });
               }
             }}
+            // Fallback: if drag is cancelled by browser (e.g. vertical scroll detected), snap back
+            onPointerCancel={() => {
+              articlePanelControls.start({ x: 0 });
+            }}
+            onTouchEnd={() => {
+              // Delayed snap-back as a safety net (only if not at x:0 or x:100%)
+              setTimeout(() => {
+                articlePanelControls.start({ x: 0 });
+              }, 50);
+            }}
             style={{ touchAction: isDesktop ? 'auto' : 'none' }}
             className={`
             lg:col-span-8 h-full overflow-hidden flex flex-col bg-background shadow-2xl lg:shadow-none
