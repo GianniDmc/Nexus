@@ -543,7 +543,7 @@ export default function NewsFeed() {
                 setSelectedId(null);
               }
             }}
-            style={{ touchAction: isDesktop ? 'auto' : 'pan-y' }}
+            style={{ touchAction: isDesktop ? 'auto' : 'none' }}
             className={`
             lg:col-span-8 h-full overflow-hidden flex flex-col bg-background shadow-2xl lg:shadow-none
             ${selectedArticle ? 'fixed inset-0 z-[100] lg:static lg:z-auto lg:relative' : 'hidden lg:flex lg:relative'}
@@ -556,7 +556,7 @@ export default function NewsFeed() {
             </div>
 
             {selectedArticle ? (
-              <div className="flex-1 w-full overflow-y-auto custom-scrollbar">
+              <div className="flex-1 w-full overflow-y-auto custom-scrollbar" style={{ touchAction: 'pan-y' }}>
                 {/* Article Hero Image */}
                 <div className="relative h-48 md:h-80 w-full flex-shrink-0 overflow-hidden">
                   {selectedArticle.image_url ? (
