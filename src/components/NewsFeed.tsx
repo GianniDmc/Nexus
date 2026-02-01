@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useSearchParams } from 'next/navigation';
 import { Sparkles, ChevronRight, ExternalLink, Filter, ArrowUpDown, Bookmark, Check, Archive, EyeOff, Newspaper, Eye, RefreshCw } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useAnimation } from 'framer-motion';
 import { SwipeableArticleCard } from './SwipeableArticleCard';
 
 type SortOption = 'date' | 'score';
@@ -67,14 +67,43 @@ export default function NewsFeed() {
   // Lock body scroll when article detail is open on mobile
   useEffect(() => {
     if (selectedId && !isDesktop) {
+      // Save current scroll position
+      const scrollY = window.scrollY;
       document.body.style.overflow = 'hidden';
+      document.body.style.position = 'fixed';
+      document.body.style.top = `-${scrollY}px`;
+      document.body.style.width = '100%';
+      document.documentElement.style.overflow = 'hidden';
     } else {
+      // Restore scroll position
+      const scrollY = document.body.style.top;
       document.body.style.overflow = '';
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.width = '';
+      document.documentElement.style.overflow = '';
+      if (scrollY) {
+        window.scrollTo(0, parseInt(scrollY || '0') * -1);
+      }
     }
     return () => {
       document.body.style.overflow = '';
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.width = '';
+      document.documentElement.style.overflow = '';
     };
   }, [selectedId, isDesktop]);
+
+  // Animation controls for article panel
+  const articlePanelControls = useAnimation();
+
+  // Animate panel in when article is selected
+  useEffect(() => {
+    if (selectedId) {
+      articlePanelControls.start({ x: 0 });
+    }
+  }, [selectedId, articlePanelControls]);
   const [sortBy, setSortBy] = useState<SortOption>('date');
 
   // User interaction states (localStorage)
@@ -328,7 +357,10 @@ export default function NewsFeed() {
     <div className="h-full w-full grid grid-cols-1 lg:grid-cols-12 overflow-hidden bg-background">
 
       {/* LEFT COLUMN: List (Scrollable Independent) */}
-      <div className="lg:col-span-4 flex flex-col h-full overflow-hidden border-r border-border/40 bg-card/20 relative">
+      <div
+        className="lg:col-span-4 flex flex-col h-full overflow-hidden border-r border-border/40 bg-card/20 relative"
+        style={{ pointerEvents: selectedId && !isDesktop ? 'none' : 'auto' }}
+      >
 
         {/* Sticky Header with Controls */}
         <div className="flex-shrink-0 bg-background/95 backdrop-blur z-20 border-b border-border/40 p-4">
@@ -530,17 +562,25 @@ export default function NewsFeed() {
         {(selectedArticle || (typeof window !== 'undefined' && window.innerWidth >= 1024)) && (
           <motion.div
             initial={{ x: '100%' }}
-            animate={{ x: 0 }}
+            animate={articlePanelControls}
             exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
             drag={isDesktop ? false : "x"}
-            dragConstraints={{ left: 0 }}
-            dragElastic={0.2}
-            dragSnapToOrigin
+            dragConstraints={{ left: 0, right: 0 }}
+            dragElastic={0.3}
+            onDragStart={() => {
+              // Ensure we start from x: 0
+              articlePanelControls.set({ x: 0 });
+            }}
             onDragEnd={(_, info) => {
               // Close if dragged more than 100px OR if flicked fast enough
               if (info.offset.x > 100 || info.velocity.x > 500) {
-                setSelectedId(null);
+                articlePanelControls.start({ x: '100%' }).then(() => {
+                  setSelectedId(null);
+                });
+              } else {
+                // Snap back to origin
+                articlePanelControls.start({ x: 0 });
               }
             }}
             style={{ touchAction: isDesktop ? 'auto' : 'none' }}
