@@ -561,7 +561,7 @@ export default function NewsFeed() {
             ${selectedArticle ? 'fixed inset-0 z-[100] lg:static lg:z-auto lg:relative' : 'hidden lg:flex lg:relative'}
           `}>
             {/* Mobile Close Button */}
-            <div className="lg:hidden flex-shrink-0 flex items-center justify-between p-4 border-b border-border bg-background/95 backdrop-blur z-50">
+            <div className="lg:hidden flex-shrink-0 flex items-center justify-between p-4 pt-[calc(0.5rem+env(safe-area-inset-top))] border-b border-border bg-background/95 backdrop-blur z-50">
               <button onClick={() => setSelectedId(null)} className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
                 <ChevronRight className="w-4 h-4 rotate-180" /> Retour
               </button>
