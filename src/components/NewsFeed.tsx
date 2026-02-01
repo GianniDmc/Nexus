@@ -566,8 +566,8 @@ export default function NewsFeed() {
             exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
             drag={isDesktop ? false : "x"}
-            dragConstraints={{ left: 0, right: 0 }}
-            dragElastic={0.3}
+            dragConstraints={{ left: 0 }}
+            dragElastic={0.05}
             onDragStart={() => {
               // Ensure we start from x: 0
               articlePanelControls.set({ x: 0 });
