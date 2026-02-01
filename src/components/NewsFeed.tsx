@@ -523,8 +523,8 @@ export default function NewsFeed() {
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
             drag={isDesktop ? false : "x"}
             dragConstraints={{ left: 0 }}
-            dragElastic={0.05}
-            dragDirectionLock
+            dragElastic={0.2}
+            dragSnapToOrigin
             onDragEnd={(_, info) => {
               // Close if dragged more than 100px OR if flicked fast enough
               if (info.offset.x > 100 || info.velocity.x > 500) {
