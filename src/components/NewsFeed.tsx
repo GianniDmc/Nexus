@@ -100,10 +100,11 @@ export default function NewsFeed() {
   const panelX = useMotionValue(0);
   const springX = useSpring(panelX, { damping: 30, stiffness: 300 });
 
-  // Animate panel in when article is selected
+  // Reset panel position immediately when article is selected
   useEffect(() => {
     if (selectedId) {
-      panelX.set(0);
+      // Use jump() for instant reset without animation
+      panelX.jump(0);
     }
   }, [selectedId, panelX]);
 
@@ -123,8 +124,8 @@ export default function NewsFeed() {
         panelX.set(mx);
       } else {
         // Gesture ended - determine if we should close or snap back
-        // Require significant swipe: >150px distance OR fast velocity (>1.0) in right direction
-        const shouldClose = mx > 150 || (vx > 1.0 && dx > 0 && mx > 50);
+        // Distance > 120px OR fast swipe (vx > 0.8) with minimum 30px movement
+        const shouldClose = mx > 120 || (vx > 0.8 && dx > 0 && mx > 30);
 
         if (shouldClose) {
           // Animate off screen then close
@@ -137,11 +138,10 @@ export default function NewsFeed() {
       }
     },
     {
-      axis: 'x',
+      axis: 'lock', // Detect direction on first move, then lock - more forgiving than 'x'
       filterTaps: true,
-      from: () => [panelX.get(), 0],
-      bounds: { left: 0 },
-      rubberband: 0.1,
+      from: () => [0, 0], // Always start from 0
+      threshold: 10, // Minimum movement before gesture activates
     }
   );
 
