@@ -12,6 +12,7 @@ concurrency:
 jobs:
   process:
     runs-on: ubuntu-latest
+    environment: Production
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
