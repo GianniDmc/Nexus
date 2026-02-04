@@ -1,5 +1,10 @@
+import { existsSync } from 'fs';
 import { config } from 'dotenv';
-config({ path: '.env.local' });
+
+// Only load .env.local if it exists (local dev). In CI, env vars are injected directly.
+if (existsSync('.env.local')) {
+  config({ path: '.env.local' });
+}
 
 import { runProcess, type ProcessStep } from '../src/lib/pipeline/process';
 import type { AIOverrideConfig } from '../src/lib/ai';
