@@ -109,8 +109,17 @@ Le seuil par défaut est **0.75** avec une fenêtre de **7 jours** (l'outil admi
 ## 8. Scripts utilitaires
 Des scripts Node.js (`scripts/`) servent aux audits et migrations ponctuelles :
 - harmonisation catégories, backfill clusters, diagnostics stats, sanity checks DB.
+- **cron-ingest.ts** : Point d'entrée standalone pour l'ingestion RSS (GitHub Actions).
+- **cron-process.ts** : Point d'entrée standalone pour le pipeline IA (GitHub Actions).
 
-## 9. Gestion Base de Données (Workflow Safe)
+## 9. Automatisation (GitHub Actions)
+Les jobs de cron sont externalisés dans `.github/workflows/` pour éviter les limites Vercel (timeout 300s) :
+- **cron-ingest.yml** : Toutes les 2h, `npm run cron:ingest`.
+- **cron-process.yml** : Toutes les 15min, `npm run cron:process` (12min max).
+
+Les scripts utilisent `dotenv` pour charger `.env.local` en développement local, mais reçoivent les secrets via `secrets.*` en CI.
+
+## 10. Gestion Base de Données (Workflow Safe)
 Depuis ADR-022, la gestion est **100% programmatique** via Supabase CLI.
 - **Interdit** : Modifier le schéma via l'interface web (sauf urgence).
 - **Workflow** : 

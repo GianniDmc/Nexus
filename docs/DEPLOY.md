@@ -59,9 +59,36 @@ C'est la méthode la plus simple pour héberger du Next.js.
 Attends quelques minutes... 🎉 Ton site est en ligne !
 
 ## 4. Automatisation (Cron Jobs)
-Actuellement, l'application met à jour les news quand tu as l'onglet Admin ouvert (`AutoProcessor`). Pour que cela se fasse tout seul en ligne :
 
-**Option 1 : cron-job.org (Gratuit & Facile)**
+### Option 1 : GitHub Actions (Recommandé ✅)
+
+L'approche la plus robuste et gratuite. Les workflows sont déjà configurés dans `.github/workflows/`.
+
+1. **Configurer les Secrets GitHub** :
+   - Va dans **Settings > Secrets and variables > Actions** de ton repo.
+   - Ajoute ces secrets :
+
+   | Secret | Description |
+   | :--- | :--- |
+   | `NEXT_PUBLIC_SUPABASE_URL` | URL de ton projet Supabase |
+   | `SUPABASE_SERVICE_ROLE_KEY` | Clé `service_role` de Supabase |
+   | `GOOGLE_API_KEY` | Clé API Google (embeddings) |
+   | `GROQ_API_KEY` | Clé API Groq (LLM fallback) |
+   | `PAID_OPENAI_API_KEY` | *(Optionnel)* Clé OpenAI pour mode turbo |
+   | `PAID_ANTHROPIC_API_KEY` | *(Optionnel)* Clé Anthropic pour mode turbo |
+   | `PAID_GOOGLE_API_KEY` | *(Optionnel)* Clé Google payante pour mode turbo |
+
+2. **Workflows configurés** :
+   - `cron-ingest.yml` : Toutes les 2h, ingestion des sources RSS.
+   - `cron-process.yml` : Toutes les 15min, embedding, clustering, scoring, publication.
+
+3. **Tester manuellement** : Va dans **Actions** > Sélectionne un workflow > **Run workflow**.
+
+> 💡 **Avantage** : Aucun timeout Vercel (limité à 300s), exécution garantie, logs détaillés.
+
+---
+
+### Option 2 : cron-job.org (Simple)
 1.  Crée un compte gratuit sur [cron-job.org](https://cron-job.org/).
 2.  Crée un nouveau "Cron Job".
 3.  **URL** : `https://ton-projet-vercel.app/api/refresh` (ingestion + processing).
@@ -70,7 +97,9 @@ Actuellement, l'application met à jour les news quand tu as l'onglet Admin ouve
 
 Cela "pingera" ton API régulièrement pour lancer la récupération et le traitement des news, même si tu dors ! 😴
 
-**Option 2 : Supabase Cron (Directement dans la base)**
+---
+
+### Option 3 : Supabase Cron (Directement dans la base)
 Si tu préfères tout gérer dans Supabase :
 1.  Va dans **SQL Editor** sur Supabase.
 2.  Active les extensions :
