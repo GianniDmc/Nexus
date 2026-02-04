@@ -26,6 +26,7 @@ Ce document recense les améliorations techniques et fonctionnelles prévues pou
 - [x] **Gestion Sources Admin** : Interface CRUD complète pour gérer les flux RSS, activation/désactivation et stats temps réel.
 - [x] **Ingestion Robuste** : Support des sites protégés (403/401) via simulation navigateur et filtrage automatique des binaires (PDF/Images).
 - [x] **Restauration CMS & Inspection** : Vue "Raw Articles" complète avec filtres (Source, Cluster), inspection JSON et navigation inter-clusters.
+- [x] **CI/CD GitHub Actions** : Externalisation des crons (ingest toutes les 2h, process toutes les 15min) hors Vercel pour éviter les timeouts. Scripts standalone avec chargement `dotenv`.
 
 ## 🔮 Améliorations Futures (Backlog)
 
@@ -105,14 +106,10 @@ Ces idées sont notées pour référence future, sans priorité définie.
 ### 📉 Dette Technique & Report de Chantier
 Conformément aux priorités actuelles, les chantiers suivants sont **volontairement reportés** :
 
-1.  **CI/CD (Github Actions)** :
-    - *Pourquoi* : Le projet est encore en phase de raffinement fonctionnel.
-    - *Quand* : À mettre en place lors de la première release publique majeure (v1.0).
-
-2.  **Tests Automatisés (Jest/Playwright)** :
+1.  **Tests Automatisés (Jest/Playwright)** :
     - *Pourquoi* : La logique évolue trop vite (ingestion, clustering), maintenir des tests serait contre-productif maintenant.
     - *Quand* : Une fois le moteur d'ingestion stabilisé.
 
-3.  **Linting Strict (Code Hygiene)** :
+2.  **Linting Strict (Code Hygiene)** :
     - *État* : ~200 warnings/erreurs (principalement des types `any`).
     - *Action* : On accepte cette dette pour garder la vélocité. À nettoyer progressivement (règle du Boy Scout).

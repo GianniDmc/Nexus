@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "cron:ingest": "npx tsx scripts/cron-ingest.ts",
+    "cron:process": "npx tsx scripts/cron-process.ts",
     "db:login": "npx supabase login",
     "db:link": "npx supabase link",
     "db:pull": "npx supabase db pull",
@@ -47,6 +49,7 @@
     "eslint-config-next": "16.1.4",
     "supabase": "^2.72.9",
     "tailwindcss": "^4",
+    "tsx": "^4.7.0",
     "typescript": "^5"
   }
 }

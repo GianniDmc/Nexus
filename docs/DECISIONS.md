@@ -31,6 +31,8 @@ Ce document consigne les choix techniques structurants du projet **App Curation 
 | ADR-023 | 2026-01-29 | Environnement de Développement Local Supabase (Docker) | Validé |
 | ADR-024 | 2026-01-31 | Pagination pour contourner la limite 1000 lignes Supabase | Validé |
 | ADR-025 | 2026-01-31 | Stratégie "Reverse Lookup" pour la Sélection des Clusters Candidats | Validé |
+| ADR-026 | 2026-01-31 | Machine à États Éditoriale (Incubating, Eligible, Ready) | Validé |
+| ADR-027 | 2026-02-04 | Externalisation des Crons vers GitHub Actions | Validé |
 
 ---
 
@@ -492,3 +494,37 @@ Formaliser une **Machine à États** stricte pour les clusters, indépendante de
 ### Conséquences
 -   **Positif** : Clarté totale pour l'éditeur. Les sujets prometteurs ne sont plus perdus. Le système "attend" intelligemment qu'une seconde source confirme une info avant de proposer une synthèse.
 -   **Négatif** : Ajoute une complexité logique dans le filtrage (gérée par le script de couverture).
+
+---
+
+## ADR-027 : Externalisation des Crons vers GitHub Actions
+
+### Contexte
+Le pipeline de traitement (`/api/process`) nécessite jusqu'à 12 minutes pour traiter un gros backlog (embeddings + clustering + scoring + rewriting). Les fonctions Vercel sont limitées à **300 secondes** (plan Hobby/Pro), ce qui causait des timeouts et des traitements incomplets.
+
+### Décision
+Externaliser les jobs de cron dans **GitHub Actions** plutôt que d'utiliser des crons externes (cron-job.org) ou Supabase pg_cron.
+
+**Architecture** :
+1. **Scripts standalone** (`scripts/cron-ingest.ts`, `scripts/cron-process.ts`) :
+   - Chargement explicite de `.env.local` via `dotenv` pour le dev local.
+   - Import des fonctions métier depuis `src/lib/pipeline/`.
+   - Sortie JSON structurée pour parsing CI.
+
+2. **Workflows GitHub Actions** (`.github/workflows/`) :
+   - `cron-ingest.yml` : Déclenché toutes les 2h, timeout 20min.
+   - `cron-process.yml` : Déclenché toutes les 15min, timeout 20min, `MAX_EXECUTION_MS=720000` (12min).
+   - Secrets injectés via `secrets.*`.
+
+3. **Lazy initialization des clients AI** (`src/lib/ai.ts`) :
+   - Les clients (Groq, Gemini) sont initialisés à la demande et non au chargement du module.
+   - Permet aux scripts de charger les variables d'environnement avant l'initialisation.
+
+### Alternatives considérées
+- **cron-job.org** : Simple mais dépendance externe, pas de logs, appelle les routes Vercel (timeout).
+- **Supabase pg_cron** : Nécessite `pg_net`, latence réseau, pas de logs Node.js.
+- **Vercel Cron** : Limité à 60s max, insuffisant pour le pipeline.
+
+### Conséquences
+-   **Positif** : Aucune limite de timeout (20min max GitHub), logs détaillés, exécution garantie, secrets sécurisés.
+-   **Négatif** : Nécessite la configuration des secrets GitHub. Les logs sont dans l'onglet Actions (pas Vercel).

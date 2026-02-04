@@ -1,0 +1,32 @@
+name: Cron Process
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: cron-process
+  cancel-in-progress: false
+
+jobs:
+  process:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+      - run: npm ci
+      - run: npm run cron:process
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          PAID_OPENAI_API_KEY: ${{ secrets.PAID_OPENAI_API_KEY }}
+          PAID_ANTHROPIC_API_KEY: ${{ secrets.PAID_ANTHROPIC_API_KEY }}
+          PAID_GOOGLE_API_KEY: ${{ secrets.PAID_GOOGLE_API_KEY }}
+          MAX_EXECUTION_MS: "720000"

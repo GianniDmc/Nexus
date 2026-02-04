@@ -2,11 +2,17 @@ import OpenAI from 'openai';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import Anthropic from '@anthropic-ai/sdk';
 
-// Initialize default Clients
-const groq = new OpenAI({
-  apiKey: process.env.GROQ_API_KEY,
-  baseURL: 'https://api.groq.com/openai/v1',
-});
+// Lazy initialization for Groq to ensure env vars are loaded
+let _groq: OpenAI | null = null;
+const getGroq = () => {
+  if (!_groq && process.env.GROQ_API_KEY) {
+    _groq = new OpenAI({
+      apiKey: process.env.GROQ_API_KEY,
+      baseURL: 'https://api.groq.com/openai/v1',
+    });
+  }
+  return _groq;
+};
 
 // Lazy initialization for Gemini to ensure env vars are loaded
 let _genAI: GoogleGenerativeAI | null = null;
@@ -106,13 +112,16 @@ const createChatCompletion = async (
   }
 
   // 4. Fallback to Groq (Llama 3)
-  for (let attempt = 0; attempt < maxLlmAttempts; attempt += 1) {
-    try {
-      return await groq.chat.completions.create({ ...payload, stream: false });
-    } catch (error) {
-      lastError = error;
-      const delay = baseRetryDelayMs * Math.pow(2, attempt);
-      if (attempt < maxLlmAttempts - 1) await sleep(delay);
+  const groqClient = getGroq();
+  if (groqClient) {
+    for (let attempt = 0; attempt < maxLlmAttempts; attempt += 1) {
+      try {
+        return await groqClient.chat.completions.create({ ...payload, stream: false });
+      } catch (error) {
+        lastError = error;
+        const delay = baseRetryDelayMs * Math.pow(2, attempt);
+        if (attempt < maxLlmAttempts - 1) await sleep(delay);
+      }
     }
   }
 
