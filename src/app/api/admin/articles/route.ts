@@ -24,18 +24,36 @@ export async function GET(request: Request) {
 
         if (needsFreshness) {
             const cutoff = getFreshnessCutoff();
-            const { data: fresh } = await supabase
-                .from('articles')
-                .select('cluster_id')
-                .gte('published_at', cutoff)
-                .order('published_at', { ascending: false })
-                .limit(500);
 
-            if (fresh) {
-                const unique = Array.from(new Set(fresh.map(a => a.cluster_id).filter(id => id !== null)));
-                // Limit to top 80 to avoid URL length limits
-                freshClusterIds = unique.slice(0, 80) as string[];
+            // PAGINATION LOOP to bypass Supabase 1000 rows limit
+            let allFreshClusterIds: string[] = [];
+            let offset = 0;
+            const pageSize = 1000;
+            let hasMore = true;
+
+            while (hasMore) {
+                const { data: batch } = await supabase
+                    .from('articles')
+                    .select('cluster_id')
+                    .gte('published_at', cutoff)
+                    .range(offset, offset + pageSize - 1);
+
+                if (batch && batch.length > 0) {
+                    const ids = batch.map(a => a.cluster_id).filter(Boolean) as string[];
+                    allFreshClusterIds.push(...ids);
+
+                    if (batch.length < pageSize) {
+                        hasMore = false;
+                    } else {
+                        offset += pageSize;
+                    }
+                } else {
+                    hasMore = false;
+                }
             }
+
+            // Deduplicate and assign to the outer variable
+            freshClusterIds = Array.from(new Set(allFreshClusterIds));
         }
 
         // Base Query
@@ -48,6 +66,10 @@ export async function GET(request: Request) {
             `, { count: 'estimated' });
 
         // MUTUALLY EXCLUSIVE FILTERS
+        // Helper date for safety bound (scan only last 30 days to avoid fetching full history)
+        const safeHistoryLimit = new Date();
+        safeHistoryLimit.setDate(safeHistoryLimit.getDate() - 35); // 30 days + margin
+
         switch (status) {
             case 'published':
                 query = query.eq('is_published', true);
@@ -63,19 +85,21 @@ export async function GET(request: Request) {
 
             case 'eligible':
                 // 🟣 File d'Attente: Fresh + Valid Score + No Summary + Enough Sources
-                if (freshClusterIds) query = query.in('id', freshClusterIds);
+                // Optimization: Don't use .in(huge_array) to avoid URL overflow. 
+                // Fetch candidate clusters from last month, then filter by freshness in JS.
                 query = query
                     .eq('is_published', false)
                     .gte('final_score', PUBLICATION_RULES.PUBLISH_THRESHOLD)
+                    .gte('created_at', safeHistoryLimit.toISOString())
                     .is('summary', null);
                 break;
 
             case 'incubating':
                 // 🟡 Incubation: Fresh + Valid Score + No Summary + (Sources checked in post-filter)
-                if (freshClusterIds) query = query.in('id', freshClusterIds);
                 query = query
                     .eq('is_published', false)
                     .gte('final_score', PUBLICATION_RULES.PUBLISH_THRESHOLD)
+                    .gte('created_at', safeHistoryLimit.toISOString())
                     .is('summary', null);
                 break;
 
@@ -88,7 +112,6 @@ export async function GET(request: Request) {
 
             case 'archived':
                 // 🟤 Archives: Stale + Valid Score + No Summary
-                // Optimized: Instead of "NOT IN fresh", we use "Old date".
                 const cutoff = getFreshnessCutoff();
                 query = query
                     .eq('is_published', false)
@@ -159,13 +182,21 @@ export async function GET(request: Request) {
             published_on: c.published_on
         })) || [];
 
-        // STRICT JS FILTERS (Pipeline Logic) for Source Counts
+        // STRICT JS FILTERS (Pipeline Logic) for Source Counts AND Freshness
         if (status === 'eligible') {
-            // RULES: Eligible = Enough UNIQUE sources
-            clusters = clusters.filter((c: any) => c.unique_sources >= PUBLICATION_RULES.MIN_SOURCES);
+            const freshSet = new Set(freshClusterIds || []);
+            // RULES: Eligible = Enough UNIQUE sources AND Fresh
+            clusters = clusters.filter((c: any) =>
+                c.unique_sources >= PUBLICATION_RULES.MIN_SOURCES &&
+                freshSet.has(c.id)
+            );
         } else if (status === 'incubating') {
-            // RULES: Incubating = NOT enough UNIQUE sources (but valid score)
-            clusters = clusters.filter((c: any) => c.unique_sources < PUBLICATION_RULES.MIN_SOURCES);
+            const freshSet = new Set(freshClusterIds || []);
+            // RULES: Incubating = NOT enough UNIQUE sources (but valid score) AND Fresh
+            clusters = clusters.filter((c: any) =>
+                c.unique_sources < PUBLICATION_RULES.MIN_SOURCES &&
+                freshSet.has(c.id)
+            );
         }
 
         // Calculate Total & Slice (if In-Memory)
