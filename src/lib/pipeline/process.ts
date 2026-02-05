@@ -142,6 +142,10 @@ export async function runProcess(options: ProcessOptions = {}): Promise<ProcessR
         .order('created_at', { ascending: true })
         .limit(processingLimit);
 
+      if (needsEmbedding && needsEmbedding.length > 0) {
+        log(`[EMBED] Starting batch of ${needsEmbedding.length} articles...`);
+      }
+
       if (!needsEmbedding || needsEmbedding.length === 0) {
         // No more work for this step
         break;
@@ -187,6 +191,10 @@ export async function runProcess(options: ProcessOptions = {}): Promise<ProcessR
         .not('embedding', 'is', null)
         .is('cluster_id', null)
         .limit(processingLimit);
+
+      if (needsClustering && needsClustering.length > 0) {
+        log(`[CLUSTER] Starting batch of ${needsClustering.length} articles...`);
+      }
 
       if (!needsClustering || needsClustering.length === 0) {
         break;
@@ -252,6 +260,10 @@ export async function runProcess(options: ProcessOptions = {}): Promise<ProcessR
         `)
         .is('final_score', null)
         .limit(processingLimit);
+
+      if (clustersToScore && clustersToScore.length > 0) {
+        log(`[SCORE] Starting batch of ${clustersToScore.length} clusters...`);
+      }
 
       if (scoreQueryError) {
         log(`Scoring Query Error: ${scoreQueryError}`);
