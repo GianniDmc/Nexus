@@ -23,6 +23,7 @@ Ce document recense les améliorations techniques et fonctionnelles prévues pou
 - [x] **Stabilité Build** : Correction des erreurs de build Vercel (Suspense sur `MobileNav`).
 - [x] **Smart Filters** : Filtres catégories dynamiques (tri par volume, compteurs contextuels) + UI compacte (Badges).
 - [x] **Gestures Mobile** : Swipe sur les articles pour Sauvegarder (droite) ou Marquer lu (gauche).
+- [x] **Partage Social** : Bouton Share natif + Page `/story/[id]` optimisée SEO/Open Graph pour le partage de clusters.
 - [x] **Gestion Sources Admin** : Interface CRUD complète pour gérer les flux RSS, activation/désactivation et stats temps réel.
 - [x] **Ingestion Robuste** : Support des sites protégés (403/401) via simulation navigateur et filtrage automatique des binaires (PDF/Images).
 - [x] **Restauration CMS & Inspection** : Vue "Raw Articles" complète avec filtres (Source, Cluster), inspection JSON et navigation inter-clusters.

@@ -33,6 +33,7 @@ Ce document consigne les choix techniques structurants du projet **App Curation 
 | ADR-025 | 2026-01-31 | Stratégie "Reverse Lookup" pour la Sélection des Clusters Candidats | Validé |
 | ADR-026 | 2026-01-31 | Machine à États Éditoriale (Incubating, Eligible, Ready) | Validé |
 | ADR-027 | 2026-02-04 | Externalisation des Crons vers GitHub Actions | Validé |
+| ADR-028 | 2026-02-05 | Stratégie de Partage et Route `/story/[id]` | Validé |
 
 ---
 
@@ -528,3 +529,22 @@ Externaliser les jobs de cron dans **GitHub Actions** plutôt que d'utiliser des
 ### Conséquences
 -   **Positif** : Aucune limite de timeout (20min max GitHub), logs détaillés, exécution garantie, secrets sécurisés.
 -   **Négatif** : Nécessite la configuration des secrets GitHub. Les logs sont dans l'onglet Actions (pas Vercel).
+
+---
+
+## ADR-028 : Stratégie de Partage et Route `/story/[id]`
+
+### Contexte
+Nous souhaitions permettre le partage d'articles (Clusters) depuis le NewsFeed. L'architecture actuelle distingue les `articles` (sources brutes) des `clusters` (sujets regroupés).
+
+### Décision
+1.  **Route dédiée `/story/[id]`** : Création d'une nouvelle route pour afficher la synthèse d'un cluster. Le terme "Story" a été choisi pour éviter la confusion avec "Article" (source brute) et refléter le caractère narratif/synthétique du contenu.
+2.  **Partage Natif** : Utilisation de l'API `navigator.share()` sur mobile pour une intégration système fluide, avec fallback presse-papier sur desktop.
+3.  **Sanatization des données de partage** : Envoi uniquement de l'URL et du Titre à l'API de partage. L'ajout de texte additionnel ("text") a été supprimé car il polluait l'URL sur certaines implémentations (concaténation forcée).
+4.  **Open Graph** : Implémentation de `generateMetadata` côté serveur pour garantir que les liens partagés sur Twitter/LinkedIn/etc. affichent une belle `og:image`, le titre et le résumé.
+
+### Conséquences
+- Les URL partagées sont propres et permanentes.
+- Le partage mobile est natif.
+- SEO amélioré pour les contenus générés.
+- La route `/article/[id]` reste disponible pour le debug ou l'affichage de sources brutes.

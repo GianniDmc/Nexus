@@ -1,0 +1,40 @@
+name: Daily Report
+
+on:
+#   schedule:
+#     - cron: "0 7 * * *"  # 8h Paris (7h UTC)
+  workflow_dispatch:
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+      
+      - run: npm ci
+      
+      - name: Generate Report
+        run: npm run daily-report
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      
+      - name: Send Email
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: "📊 Nexus Daily Report - ${{ github.event.repository.name }}"
+          to: ${{ secrets.EMAIL_TO }}
+          from: Nexus Bot <${{ secrets.EMAIL_USERNAME }}>
+          body: file://daily-report.txt
+          ignore_cert: true

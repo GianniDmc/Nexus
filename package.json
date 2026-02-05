@@ -9,6 +9,7 @@
     "lint": "eslint",
     "cron:ingest": "npx tsx scripts/cron-ingest.ts",
     "cron:process": "npx tsx scripts/cron-process.ts",
+    "daily-report": "npx tsx scripts/daily-report.ts",
     "db:login": "npx supabase login",
     "db:link": "npx supabase link",
     "db:pull": "npx supabase db pull",
