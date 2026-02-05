@@ -96,6 +96,7 @@ La console `/admin` centralise les opérations métiers.
 
 ### Tables clés
 - **articles** : source brute, `content`, `summary_short` (legacy, utilisé par `/api/digest`), `image_url`, `embedding`, `category`, `cluster_id`.
+  - *Index* : `articles_cluster_id_idx` ajouté pour optimiser les jointures de comptage dans l'admin.
 - **clusters** : agrégation éditoriale (`label`, `representative_article_id`, `final_score`, `is_published`, `published_on`, `category`, `image_url`).
 - **summaries** : contenu généré (`title`, `content_tldr`, `content_analysis`, `content_full`, `image_url`, `source_count`).
 - **sources** : catalogue RSS avec catégorie, `is_active`, `last_fetched_at`.
