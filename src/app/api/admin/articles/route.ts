@@ -18,15 +18,12 @@ export async function GET(request: Request) {
         const status = searchParams.get('status') || 'all';
         const search = searchParams.get('search') || '';
 
-        console.log(`[API-ADMIN] GET /articles status=${status} page=${page} search='${search}'`);
-
         // Freshness Logic (Reverse Lookup)
         let freshClusterIds: string[] | null = null;
         const needsFreshness = ['eligible', 'incubating', 'archived'].includes(status);
 
         if (needsFreshness) {
             const cutoff = getFreshnessCutoff();
-            console.log(`[API-ADMIN] fetching fresh articles since ${cutoff} for status ${status}`);
             const { data: fresh } = await supabase
                 .from('articles')
                 .select('cluster_id')
@@ -146,8 +143,6 @@ export async function GET(request: Request) {
 
         if (error) throw error;
 
-        console.log(`[API-ADMIN] DB returned ${data?.length} rows (Total matching DB: ${dbCount})`);
-
         // Transform & Post-Filter
         let clusters = data?.map((c: any) => ({
             ...c,
@@ -166,15 +161,11 @@ export async function GET(request: Request) {
 
         // STRICT JS FILTERS (Pipeline Logic) for Source Counts
         if (status === 'eligible') {
-            const beforeCount = clusters.length;
             // RULES: Eligible = Enough UNIQUE sources
             clusters = clusters.filter((c: any) => c.unique_sources >= PUBLICATION_RULES.MIN_SOURCES);
-            console.log(`[API-ADMIN] Post-Filter 'eligible' (Unique Sources >= ${PUBLICATION_RULES.MIN_SOURCES}): ${beforeCount} -> ${clusters.length}`);
         } else if (status === 'incubating') {
-            const beforeCount = clusters.length;
             // RULES: Incubating = NOT enough UNIQUE sources (but valid score)
             clusters = clusters.filter((c: any) => c.unique_sources < PUBLICATION_RULES.MIN_SOURCES);
-            console.log(`[API-ADMIN] Post-Filter 'incubating' (Unique Sources < ${PUBLICATION_RULES.MIN_SOURCES}): ${beforeCount} -> ${clusters.length}`);
         }
 
         // Calculate Total & Slice (if In-Memory)
@@ -191,7 +182,6 @@ export async function GET(request: Request) {
             // Paginate
             const from = (page - 1) * limit;
             clusters = clusters.slice(from, from + limit);
-            console.log(`[API-ADMIN] In-Memory Slice: ${from} to ${from + limit} (Returned: ${clusters.length})`);
         }
 
         return NextResponse.json({
