@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useSearchParams } from 'next/navigation';
-import { Sparkles, ChevronRight, ExternalLink, Filter, ArrowUpDown, Bookmark, Check, Archive, EyeOff, Newspaper, Eye, RefreshCw } from 'lucide-react';
+import { Sparkles, ChevronRight, ExternalLink, Filter, ArrowUpDown, Bookmark, Check, Archive, EyeOff, Newspaper, Eye, RefreshCw, Share2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { SwipeableArticleCard } from './SwipeableArticleCard';
 
@@ -269,6 +269,29 @@ export default function NewsFeed() {
       saveStoredSet(STORAGE_KEYS.READING_LIST, updated);
       return updated;
     });
+  }, []);
+
+  // Share article (native share or clipboard fallback)
+  const shareArticle = useCallback(async (article: { id: string; title: string }, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const shareUrl = `${window.location.origin}/story/${article.id}`;
+    const shareData = {
+      title: article.title,
+      url: shareUrl,
+    };
+
+    try {
+      if (navigator.share && navigator.canShare?.(shareData)) {
+        await navigator.share(shareData);
+      } else {
+        await navigator.clipboard.writeText(shareUrl);
+        // Simple feedback via alert (could be replaced with a toast)
+        alert('Lien copié dans le presse-papier !');
+      }
+    } catch (err) {
+      // User cancelled or error - silently ignore
+      console.log('Share cancelled or failed:', err);
+    }
   }, []);
 
   // Select article (automatically marks as read if not already)
@@ -595,6 +618,9 @@ export default function NewsFeed() {
                       </button>
                       <button onClick={(e) => toggleReadingList(selectedArticle.id, e)} className={`p-2 bg-background/60 backdrop-blur rounded-full hover:bg-background transition-all border border-transparent hover:border-border ${readingList.has(selectedArticle.id) ? 'text-accent' : 'text-muted-foreground hover:text-accent'}`} title="Sauvegarder">
                         <Bookmark className={`w-4 h-4 ${readingList.has(selectedArticle.id) ? 'fill-current' : ''}`} />
+                      </button>
+                      <button onClick={(e) => shareArticle(selectedArticle, e)} className="p-2 bg-background/60 backdrop-blur rounded-full hover:bg-background transition-all border border-transparent hover:border-border text-muted-foreground hover:text-accent" title="Partager">
+                        <Share2 className="w-4 h-4" />
                       </button>
                     </div>
                   </div>

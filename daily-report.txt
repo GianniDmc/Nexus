@@ -1,0 +1,25 @@
+📊 NEXUS DAILY REPORT
+Période: 03/02/2026 - 04/02/2026
+
+📥 INGESTION
+  • Articles ingérés: 762
+  • Avec embedding: 762
+  • Clusterisés: 762
+
+📰 PUBLICATION
+  • Clusters créés: 302
+  • Clusters publiés: 35
+
+🏆 TOP SOURCES
+  1. Hacker News: 69 articles
+  2. Les Numériques: 58 articles
+  3. PCMag: 51 articles
+  4. Frandroid: 48 articles
+  5. Gizmodo: 45 articles
+
+📂 TOP CATÉGORIES
+  1. IA: 9 clusters
+  2. Gaming: 4 clusters
+  3. Cyber-Sécurité: 4 clusters
+  4. Hardware: 4 clusters
+  5. Software: 3 clusters

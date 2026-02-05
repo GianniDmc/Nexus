@@ -90,6 +90,7 @@ La console `/admin` centralise les opérations métiers.
     - **Flux** : Liste chronologique ou par score, cartes avec indicateurs de sources multiples.
 - **Reading List** : sauvegarde locale (localStorage) + table `reading_list` prête côté DB.
 - **Articles** : pages détaillées (`/article/[id]`) et digest (`/digest/[id]`).
+- **Story** : page de partage (`/story/[id]`) dédiée aux clusters publiés, avec métadonnées Open Graph (Social Preview).
 
 ## 7. Base de Données (Supabase)
 
