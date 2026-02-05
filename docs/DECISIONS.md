@@ -34,6 +34,7 @@ Ce document consigne les choix techniques structurants du projet **App Curation 
 | ADR-026 | 2026-01-31 | Machine à États Éditoriale (Incubating, Eligible, Ready) | Validé |
 | ADR-027 | 2026-02-04 | Externalisation des Crons vers GitHub Actions | Validé |
 | ADR-028 | 2026-02-05 | Stratégie de Partage et Route `/story/[id]` | Validé |
+| ADR-029 | 2026-02-05 | Affinement du Consensus par Sources Uniques | Validé |
 
 ---
 
@@ -547,4 +548,20 @@ Nous souhaitions permettre le partage d'articles (Clusters) depuis le NewsFeed. 
 - Les URL partagées sont propres et permanentes.
 - Le partage mobile est natif.
 - SEO amélioré pour les contenus générés.
-- La route `/article/[id]` reste disponible pour le debug ou l'affichage de sources brutes.
+---
+
+## ADR-029 : Affinement du Consensus par Sources Uniques
+
+### Contexte
+Le pipeline générait parfois des "faux positifs" en considérant comme "candidat viable" un cluster composé de plusieurs articles provenant de la même source (ou du même flux RSS dupliqué).
+La liste "File d'attente" (admin) se basait sur le nombre total d'articles, tandis que le "Dashboard" (AutoProcessor) utilisait un filtre plus strict sur les sources uniques, créant une incohérence visuelle pour l'éditeur (articles visibles mais jamais traités).
+
+### Décision
+Standardiser la définition du **Consensus** :
+1.  **Critère Unique** : Un sujet n'est considéré "Eligible" (et donc visible en File d'Attente) que s'il comporte au moins **2 Sources Uniques** (`source_name` distincts).
+2.  **Alignement** : L'API Admin (`/api/admin/articles`) utilise désormais ce filtre strict pour l'état "Eligible", déplaçant les clusters mono-source (même avec 10 articles) vers l'état "Incubating".
+3.  **Optimisation** : Ajout d'un index SQL sur `articles(cluster_id)` pour garantir que le comptage et le filtrage restent performants malgré la complexité du recoupement.
+
+### Conséquences
+-   **Positif** : Cohérence totale entre ce que l'éditeur voit et ce que l'IA va traiter. Réduction du bruit (élimination des "compilations" d'une seule source).
+-   **Négatif** : Un scoop exclusif relayé massivement par une seule source restera en "Incubation" tant qu'un autre média ne l'aura pas repris (ce qui est le comportement souhaité pour un agrégateur de "Consensus").
