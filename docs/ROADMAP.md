@@ -31,6 +31,44 @@ Ce document recense les améliorations techniques et fonctionnelles prévues pou
 
 ## 🔮 Améliorations Futures (Backlog)
 
+### Priorités (ordre recommandé)
+1. **P0 — Fiabilité & Sécurité** : cohérence cluster‑centric, verrouillage pipeline, endpoints publics, décisions de clustering.
+2. **P1 — Performance & Scalabilité** : requêtes lourdes, stats/analytics SQL, indexes, optimisations batch.
+3. **P2 — Hygiène & UX** : nettoyage legacy, factorisation, micro‑optimisations front.
+
+### 0. Audit Codebase (Février 2026) — Plan d'amélioration
+- [ ] **[P0] Alignement cluster‑centric** : supprimer les reliquats article‑centric (ex: usages de `articles.summary_short` et `articles.final_score`) et basculer définitivement vers `summaries` + `clusters`.
+- [ ] **[P2] Digest (legacy)** : clarifier “déprécié / non utilisé” et éviter toute refonte; optionnellement nettoyer la route/UX si inutiles.
+- [ ] **[P0] Representative article** : exploiter `representative_article_id` pour la synthèse, l’image et la sélection “article principal”.
+- [ ] **[P0] Décision de simulation** : homogénéiser les valeurs (`NEW_CLUSTER` / `CREATE_CLUSTER`) et supprimer `create_new_force`.
+- [ ] **[P0] Sélection auto feed** : corriger le re‑select intempestif lié à la closure de `items`.
+- [ ] **[P1] Centralisation Supabase admin** : créer un helper unique pour le client “service role”.
+- [ ] **[P1] Règles de publication** : factoriser encore plus et éviter les duplications de logique entre API / admin / stats.
+- [ ] **[P1] Validation des payloads** : ajouter `zod` côté API pour sécuriser les entrées.
+- [ ] **[P2] Nettoyage legacy** : supprimer ou archiver `computeFinalScore()` et tout code mort associé.
+
+### 0b. Performance DB & Requêtes
+- [ ] **[P1] RPC pour filtres métier** : remplacer les post‑filtres JS par SQL (freshness, min sources, publish threshold).
+- [ ] **[P1] Stats admin optimisées** : déplacer les agrégations lourdes côté SQL/RPC.
+- [ ] **[P1] Analytics** : remplacer les scans complets par `GROUP BY`, `date_trunc`, vues matérialisées si besoin.
+- [ ] **[P1] Counts légers** : éviter `select('*')` pour les comptes; utiliser `select('id', { count: 'exact', head: true })`.
+- [ ] **[P1] Indexes** : vérifier/ajouter indexes sur `articles(created_at, published_at, cluster_id, embedding IS NULL)` et `clusters(final_score, is_published, published_on)`.
+
+### 0c. Pipeline & IA
+- [ ] **[P0] Parsing robuste JSON** : validation des réponses LLM (schema + fallback).
+- [ ] **[P1] Prompts plus compacts** : limiter le nombre de sources envoyées (top N par score/fraîcheur).
+- [ ] **[P1] Embeddings resilients** : retries + backoff sur `generateEmbedding`.
+- [ ] **[P0] Verrouillage pipeline** : remplacer le lock applicatif par un lock SQL atomique (`pg_advisory_lock`).
+
+### 0d. Sécurité & Ops
+- [ ] **[P0] Protéger `/api/ingest` et `/api/process`** : token/secret header pour éviter l’abus public.
+- [ ] **[P0] Durcir les endpoints admin** : contrôle d’accès et rate‑limit de base sur routes sensibles.
+
+### 0e. Front & UX
+- [ ] **[P2] Parsing JSON optimisé** : `useMemo` pour éviter les `JSON.parse` multiples.
+- [ ] **[P2] Cache des sources** : mémoriser les sources par cluster pour limiter les requêtes répétées.
+- [ ] **[P2] Nettoyage UI** : retirer les doublons (ex: `getPageTitle()`), simplifier le state.
+
 ### 1. Dynamic Throughput Tuning
 **Objectif** : Ajuster dynamiquement le débit de traitement (items par batch) en fonction du volume d'ingestion réel, pour optimiser les coûts et la latence.
 - Si volume ingestion faible : Réduire le batch size (ex: 5-10) pour économiser les appels et réduire le bruit.
