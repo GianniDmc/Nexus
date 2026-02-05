@@ -46,7 +46,7 @@ export async function GET(request: Request) {
             .from('clusters')
             .select(`
                 *,
-                articles:articles!articles_cluster_id_fkey(count),
+                articles:articles!articles_cluster_id_fkey(source_name),
                 summary:summaries!summaries_cluster_id_fkey(*)
             `, { count: 'estimated' });
 
@@ -152,7 +152,10 @@ export async function GET(request: Request) {
         let clusters = data?.map((c: any) => ({
             ...c,
             title: c.label,
-            cluster_size: c.articles?.[0]?.count || 0,
+            // Calculate sizes
+            cluster_size: c.articles?.length || 0, // Total articles
+            unique_sources: new Set(c.articles?.map((a: any) => a.source_name)).size, // Unique sources
+
             summary_short: c.summary ? JSON.stringify({
                 title: c.summary.title,
                 tldr: c.summary.content_tldr,
@@ -164,12 +167,14 @@ export async function GET(request: Request) {
         // STRICT JS FILTERS (Pipeline Logic) for Source Counts
         if (status === 'eligible') {
             const beforeCount = clusters.length;
-            clusters = clusters.filter((c: any) => c.cluster_size >= PUBLICATION_RULES.MIN_SOURCES);
-            console.log(`[API-ADMIN] Post-Filter 'eligible' (Sources >= ${PUBLICATION_RULES.MIN_SOURCES}): ${beforeCount} -> ${clusters.length}`);
+            // RULES: Eligible = Enough UNIQUE sources
+            clusters = clusters.filter((c: any) => c.unique_sources >= PUBLICATION_RULES.MIN_SOURCES);
+            console.log(`[API-ADMIN] Post-Filter 'eligible' (Unique Sources >= ${PUBLICATION_RULES.MIN_SOURCES}): ${beforeCount} -> ${clusters.length}`);
         } else if (status === 'incubating') {
             const beforeCount = clusters.length;
-            clusters = clusters.filter((c: any) => c.cluster_size < PUBLICATION_RULES.MIN_SOURCES);
-            console.log(`[API-ADMIN] Post-Filter 'incubating' (Sources < ${PUBLICATION_RULES.MIN_SOURCES}): ${beforeCount} -> ${clusters.length}`);
+            // RULES: Incubating = NOT enough UNIQUE sources (but valid score)
+            clusters = clusters.filter((c: any) => c.unique_sources < PUBLICATION_RULES.MIN_SOURCES);
+            console.log(`[API-ADMIN] Post-Filter 'incubating' (Unique Sources < ${PUBLICATION_RULES.MIN_SOURCES}): ${beforeCount} -> ${clusters.length}`);
         }
 
         // Calculate Total & Slice (if In-Memory)
