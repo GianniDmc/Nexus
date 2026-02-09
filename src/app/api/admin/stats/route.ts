@@ -82,25 +82,22 @@ export async function GET(req: Request) {
     const candidateClusters = (candidateClustersRes.data as any[]) || [];
     const candidateIdSet = new Set(candidateClusters.map((c: any) => c.id));
 
-    // Paginate to get ALL cluster articles (bypass 1000 row limit)
+    // Paginate to get articles FOR CANDIDATE CLUSTERS ONLY (Optimization)
+    // Instead of fetching ALL articles in DB, we only fetch those belonging to the candidate clusters.
     let allClusterArticles: any[] = [];
-    let offset = 0;
-    const pageSize = 1000;
-    let hasMore = true;
+    const candidateIds = Array.from(candidateIdSet);
 
-    while (hasMore) {
+    // Batch fetch (Supabase 'in' limit is safe around ~200-500, let's use 200 chunks)
+    const chunkSize = 200;
+    for (let i = 0; i < candidateIds.length; i += chunkSize) {
+      const batchIds = candidateIds.slice(i, i + chunkSize);
       const { data: batch } = await supabase
         .from('articles')
         .select('cluster_id, source_name, published_at')
-        .not('cluster_id', 'is', null)
-        .range(offset, offset + pageSize - 1);
+        .in('cluster_id', batchIds);
 
-      if (batch && batch.length > 0) {
+      if (batch) {
         allClusterArticles = allClusterArticles.concat(batch);
-        offset += pageSize;
-        hasMore = batch.length === pageSize;
-      } else {
-        hasMore = false;
       }
     }
 
