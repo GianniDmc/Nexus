@@ -29,7 +29,7 @@ async function main() {
     log,
   });
 
-  console.log(JSON.stringify(result));
+  console.log(`__CRON_JSON__${JSON.stringify(result)}`);
 
   if (!result.success) {
     process.exitCode = 1;

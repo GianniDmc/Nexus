@@ -164,7 +164,7 @@ async function main() {
       .is('embedding', null)
   );
   if (pendingEmbedding.error) {
-    console.log(JSON.stringify({
+    console.log(`__CRON_JSON__${JSON.stringify({
       success: false,
       shouldProcess: true,
       reasons: ['precheck_error_pending_embedding'],
@@ -176,7 +176,7 @@ async function main() {
         candidateRewritingScanned: 0,
       },
       error: pendingEmbedding.error,
-    } satisfies ShouldProcessResult));
+    } satisfies ShouldProcessResult)}`);
     return;
   }
 
@@ -188,7 +188,7 @@ async function main() {
       .is('cluster_id', null)
   );
   if (pendingClustering.error) {
-    console.log(JSON.stringify({
+    console.log(`__CRON_JSON__${JSON.stringify({
       success: false,
       shouldProcess: true,
       reasons: ['precheck_error_pending_clustering'],
@@ -200,7 +200,7 @@ async function main() {
         candidateRewritingScanned: 0,
       },
       error: pendingClustering.error,
-    } satisfies ShouldProcessResult));
+    } satisfies ShouldProcessResult)}`);
     return;
   }
 
@@ -211,7 +211,7 @@ async function main() {
       .is('final_score', null)
   );
   if (pendingScoring.error) {
-    console.log(JSON.stringify({
+    console.log(`__CRON_JSON__${JSON.stringify({
       success: false,
       shouldProcess: true,
       reasons: ['precheck_error_pending_scoring'],
@@ -223,7 +223,7 @@ async function main() {
         candidateRewritingScanned: 0,
       },
       error: pendingScoring.error,
-    } satisfies ShouldProcessResult));
+    } satisfies ShouldProcessResult)}`);
     return;
   }
 
@@ -260,12 +260,12 @@ async function main() {
     error: precheckError,
   };
 
-  console.log(JSON.stringify(result));
+  console.log(`__CRON_JSON__${JSON.stringify(result)}`);
 }
 
 main().catch((error) => {
   const message = error instanceof Error ? error.message : String(error);
-  console.log(JSON.stringify({
+  console.log(`__CRON_JSON__${JSON.stringify({
     success: false,
     shouldProcess: true,
     reasons: ['precheck_unhandled_error'],
@@ -277,5 +277,5 @@ main().catch((error) => {
       candidateRewritingScanned: 0,
     },
     error: message,
-  } satisfies ShouldProcessResult));
+  } satisfies ShouldProcessResult)}`);
 });
