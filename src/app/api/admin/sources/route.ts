@@ -1,14 +1,11 @@
 
-import { createClient } from '@supabase/supabase-js';
+import { getServiceSupabase } from '@/lib/supabase-admin';
 import { NextRequest, NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-    const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
+    const supabase = getServiceSupabase();
 
     try {
         // Get all sources
@@ -42,10 +39,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-    const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
+    const supabase = getServiceSupabase();
     const body = await req.json();
     const { name, url, category } = body;
 
@@ -67,10 +61,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
-    const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
+    const supabase = getServiceSupabase();
     const body = await req.json();
     const { id, is_active } = body;
 
@@ -93,10 +84,7 @@ export async function PUT(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-    const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
+    const supabase = getServiceSupabase();
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
 

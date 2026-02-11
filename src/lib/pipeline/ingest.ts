@@ -1,5 +1,5 @@
 import Parser from 'rss-parser';
-import { createClient } from '@supabase/supabase-js';
+import { getServiceSupabase } from '../supabase-admin';
 import { scrapeArticle } from '../scraper';
 import { getIngestionCutoff, PUBLICATION_RULES } from '../publication-rules';
 
@@ -182,10 +182,7 @@ async function processSource(
 }
 
 export async function runIngest(options: IngestOptions = {}): Promise<IngestResult> {
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  const supabase = getServiceSupabase();
 
   const log = options.log || console.log;
   const batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { RefreshCw, Database, CheckCircle, AlertCircle, Layers, Filter, ThumbsUp, ThumbsDown, PenTool, Zap, LayoutDashboard, FileText, GitBranch, Key, BarChart3 } from 'lucide-react';
+import { Database, CheckCircle, Layers, Filter, ThumbsUp, ThumbsDown, Zap, LayoutDashboard, FileText, GitBranch, Key, BarChart3 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { AutoProcessor } from '@/components/admin/AutoProcessor';
@@ -19,12 +19,25 @@ interface Stats {
   scored: number;
   relevant: number;
   rejected: number;
+  publishedRelevantClusters?: number;
+  summaryBlockedClusters?: number;
+  anomalyEmptyClusters?: number;
+  relevantDecomposedClusters?: number;
+  relevantGapClusters?: number;
   pendingActionable?: number;
+  pendingActionableClusters?: number;
   pendingSkipped?: number;
   pendingEmbedding?: number;
   pendingClustering?: number;
   pendingScoring?: number;
+  pendingScoreClusters?: number;
   pendingRewriting?: number;
+  pendingMaturity?: number;
+  pendingMaturityClusters?: number;
+  pendingSources?: number;
+  pendingSourcesClusters?: number;
+  pendingArchived?: number;
+  pendingArchivedClusters?: number;
   embedded?: number;
   clustered?: number;
   ready?: number;
@@ -35,7 +48,6 @@ interface Stats {
 }
 
 export default function AdminPage() {
-  const [loading, setLoading] = useState(false);
   const [stats, setStats] = useState<Stats | null>(null);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'analytics' | 'editorial' | 'clusters' | 'ia' | 'sources' | 'cms'>('dashboard');
 
@@ -50,10 +62,42 @@ export default function AdminPage() {
   };
 
   useEffect(() => {
-    fetchStats();
     const interval = setInterval(fetchStats, 5000);
-    return () => clearInterval(interval);
+    const initial = setTimeout(() => {
+      void fetchStats();
+    }, 0);
+    return () => {
+      clearTimeout(initial);
+      clearInterval(interval);
+    };
   }, []);
+
+  const scoredClusters = stats?.scored || 0;
+  const relevantClusters = stats?.relevant || 0;
+  const rejectedClusters = stats?.rejected || 0;
+  const scoringDecompositionClusters = relevantClusters + rejectedClusters;
+  const scoringGapClusters = scoredClusters - scoringDecompositionClusters;
+
+  const publishedRelevantClusters = stats?.publishedRelevantClusters || 0;
+  const pendingActionableClusters = stats?.pendingActionableClusters || 0;
+  const pendingMaturityClusters = stats?.pendingMaturityClusters || 0;
+  const pendingSourcesClusters = stats?.pendingSourcesClusters || 0;
+  const pendingArchivedClusters = stats?.pendingArchivedClusters || 0;
+  const summaryBlockedClusters = stats?.summaryBlockedClusters || 0;
+  const anomalyEmptyClusters = stats?.anomalyEmptyClusters || 0;
+
+  const relevantUnpublishedClusters = Math.max(relevantClusters - publishedRelevantClusters, 0);
+  const relevantUnpublishedDecomposedClusters =
+    pendingActionableClusters +
+    pendingMaturityClusters +
+    pendingSourcesClusters +
+    pendingArchivedClusters +
+    summaryBlockedClusters +
+    anomalyEmptyClusters;
+  const relevantUnpublishedGapClusters = relevantUnpublishedClusters - relevantUnpublishedDecomposedClusters;
+
+  const publishedAllClusters = stats?.published || 0;
+  const publishedOffThresholdClusters = Math.max(publishedAllClusters - publishedRelevantClusters, 0);
 
   return (
     <div className="min-h-screen bg-background p-4 md:p-16 pb-24 md:pb-16">
@@ -117,7 +161,7 @@ export default function AdminPage() {
 
         {activeTab === 'dashboard' ? (
           <>
-            <p className="text-muted mb-12">Vue d'ensemble du pipeline de curation automatisé.</p>
+            <p className="text-muted mb-12">Vue d&apos;ensemble du pipeline de curation automatisé.</p>
 
             {/* Pipeline Visualization */}
             <div className="relative mb-16">
@@ -159,9 +203,23 @@ export default function AdminPage() {
                       <span className="font-mono"><span className="text-green-400">{stats?.clustered || 0}</span> / <span className="text-muted">{stats?.pendingClustering || 0}</span></span>
                     </div>
                     <div className="flex justify-between items-center">
-                      <span className="text-yellow-400">⭐ Scoring</span>
-                      <span className="font-mono"><span className="text-green-400">{stats?.scored || 0}</span> / <span className="text-muted">{stats?.pendingScoring || 0}</span></span>
+                      <span className="text-yellow-400">⭐ Scoring (clusters)</span>
+                      <span className="font-mono"><span className="text-green-400">{stats?.scored || 0}</span> / <span className="text-muted">{stats?.pendingScoreClusters || 0}</span></span>
                     </div>
+                    <div className="flex justify-between items-center text-[10px] text-muted">
+                      <span>Articles à scorer</span>
+                      <span className="font-mono">{stats?.pendingScoring || 0}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-[10px] text-yellow-300/80">
+                      <span>Contrôle: pertinents + rejetés</span>
+                      <span className="font-mono">{scoringDecompositionClusters}</span>
+                    </div>
+                    {scoringGapClusters !== 0 && (
+                      <div className="flex justify-between items-center text-[10px] text-red-400">
+                        <span>Delta scoring</span>
+                        <span className="font-mono">{scoringGapClusters}</span>
+                      </div>
+                    )}
                     <div className="w-full h-px bg-border my-2" />
                     <div className="flex justify-between items-center">
                       <span className="text-accent">🗂️ Clusters multi-sources</span>
@@ -179,16 +237,28 @@ export default function AdminPage() {
                   <div className="space-y-2">
                     <div className="flex justify-between items-center text-xs">
                       <span className="flex items-center gap-1 text-green-500"><ThumbsUp className="w-3 h-3" /> Pertinents</span>
-                      <span className="font-bold">{stats?.relevant || 0}</span>
+                      <span className="font-bold">{stats?.relevant || 0} sujets</span>
                     </div>
                     <div className="flex justify-between items-center text-xs">
                       <span className="flex items-center gap-1 text-red-500"><ThumbsDown className="w-3 h-3" /> Rejetés</span>
-                      <span className="font-bold text-muted">{stats?.rejected || 0}</span>
+                      <span className="font-bold text-muted">{stats?.rejected || 0} sujets</span>
                     </div>
                     <div className="w-full h-px bg-border my-2" />
+                    <div className="flex justify-between items-center text-[10px] text-green-500/80">
+                      <span>Dont déjà publiés</span>
+                      <span>{publishedRelevantClusters} sujets</span>
+                    </div>
+                    <div className="flex justify-between items-center text-[10px] text-primary/80">
+                      <span>Pertinents non publiés</span>
+                      <span>{relevantUnpublishedClusters} sujets</span>
+                    </div>
                     <div className="flex justify-between items-center text-xs">
                       <span className="text-accent font-bold">À Rédiger (Actionnable)</span>
-                      <span className="text-accent font-bold text-lg">{stats?.pendingActionable || 0}</span>
+                      <span className="text-accent font-bold text-lg">{pendingActionableClusters} sujets</span>
+                    </div>
+                    <div className="flex justify-between items-center text-[10px] text-accent/80">
+                      <span>Sous-total articles</span>
+                      <span>{stats?.pendingActionable || 0}</span>
                     </div>
                     {stats && stats.pendingSkipped !== undefined && stats.pendingSkipped > 0 && (
                       <div className="flex justify-between items-center text-[10px] text-muted">
@@ -197,9 +267,53 @@ export default function AdminPage() {
                       </div>
                     )}
                     <div className="flex justify-between items-center text-xs">
-                      <span className="text-blue-500 font-bold">Prêts (En attente)</span>
-                      <span className="text-blue-500 font-bold">{stats?.ready || 0}</span>
+                      <span className="text-amber-500 font-bold">En attente maturité</span>
+                      <span className="text-amber-500 font-bold">{pendingMaturityClusters} sujets</span>
                     </div>
+                    <div className="flex justify-between items-center text-[10px] text-amber-400/80">
+                      <span>Sous-total articles</span>
+                      <span>{stats?.pendingMaturity || 0}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-orange-400 font-bold">En attente sources</span>
+                      <span className="text-orange-400 font-bold">{pendingSourcesClusters} sujets</span>
+                    </div>
+                    <div className="flex justify-between items-center text-[10px] text-orange-300/80">
+                      <span>Sous-total articles</span>
+                      <span>{stats?.pendingSources || 0}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-amber-300 font-bold">En attente fraîcheur</span>
+                      <span className="text-amber-300 font-bold">{pendingArchivedClusters} sujets</span>
+                    </div>
+                    <div className="flex justify-between items-center text-[10px] text-amber-200/80">
+                      <span>Sous-total articles</span>
+                      <span>{stats?.pendingArchived || 0}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-[10px] text-sky-300/80">
+                      <span>Synthèse non publiée</span>
+                      <span>{summaryBlockedClusters} sujets</span>
+                    </div>
+                    <div className="flex justify-between items-center text-[10px] text-rose-300/80">
+                      <span>Cluster vide (anomalie)</span>
+                      <span>{anomalyEmptyClusters} sujets</span>
+                    </div>
+                    <div className="flex justify-between items-center text-[10px] text-primary/80">
+                      <span>Décomposé (non publiés)</span>
+                      <span>{relevantUnpublishedDecomposedClusters} sujets</span>
+                    </div>
+                    {relevantUnpublishedGapClusters !== 0 && (
+                      <div className="flex justify-between items-center text-[10px] text-red-400">
+                        <span>Delta non publiés</span>
+                        <span>{relevantUnpublishedGapClusters}</span>
+                      </div>
+                    )}
+                    {stats && (stats.relevantGapClusters || 0) !== 0 && (
+                      <div className="flex justify-between items-center text-[10px] text-red-400">
+                        <span>Delta global pertinents</span>
+                        <span>{stats.relevantGapClusters}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -210,8 +324,20 @@ export default function AdminPage() {
                   </div>
                   <h3 className="text-center font-bold text-sm uppercase tracking-widest text-accent mb-4 mt-2">4. Diffusion</h3>
                   <div className="text-center">
-                    <span className="text-4xl font-serif block mb-1 text-accent">{stats?.published || 0}</span>
-                    <span className="text-xs text-accent/70 font-bold uppercase">Articles Publiés</span>
+                    <span className="text-4xl font-serif block mb-1 text-accent">{publishedRelevantClusters}</span>
+                    <span className="text-xs text-accent/70 font-bold uppercase">Sujets Pertinents Publiés</span>
+                    <div className="mt-3 pt-3 border-t border-accent/20 text-[10px] text-accent/80">
+                      <div className="flex justify-between items-center">
+                        <span>Total publiés</span>
+                        <span className="font-mono">{publishedAllClusters}</span>
+                      </div>
+                      {publishedOffThresholdClusters > 0 && (
+                        <div className="flex justify-between items-center text-amber-300">
+                          <span>Publié hors seuil</span>
+                          <span className="font-mono">{publishedOffThresholdClusters}</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>

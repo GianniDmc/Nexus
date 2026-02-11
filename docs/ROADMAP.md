@@ -28,6 +28,7 @@ Ce document recense les améliorations techniques et fonctionnelles prévues pou
 - [x] **Ingestion Robuste** : Support des sites protégés (403/401) via simulation navigateur et filtrage automatique des binaires (PDF/Images).
 - [x] **Restauration CMS & Inspection** : Vue "Raw Articles" complète avec filtres (Source, Cluster), inspection JSON et navigation inter-clusters.
 - [x] **CI/CD GitHub Actions** : Externalisation des crons (ingest toutes les 2h, process toutes les 15min) hors Vercel pour éviter les timeouts. Scripts standalone avec chargement `dotenv`.
+- [x] **Alignement Editorial/Process/Stats** : classifier éditorial unifié (`editorial-state`), tabs exclusives (maturité vs sources), maturité basée sur le premier article, et dashboard avec décomposition + deltas de réconciliation.
 
 ## 🔮 Améliorations Futures (Backlog)
 

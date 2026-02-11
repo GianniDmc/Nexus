@@ -215,23 +215,25 @@ export function ArticleManager() {
 
     const filterLabels: Record<string, string> = {
         'published': '🟢 Publiés',
-        'ready': '🔵 À Valider (Prêts)',
         'eligible': '🟣 File d\'Attente',
-        'incubating': '🟡 En Incubation',
-        'pending': '⏳ En Attente (IA)',
-        'archived': '🟤 Archives / Ratés',
+        'incubating_maturity': '🟡 Attente Maturité',
+        'incubating_sources': '🟠 Attente Sources',
+        'pending': '⏳ En Attente Scoring',
+        'archived': '🟤 Archives',
         'low_score': '⚪ Faible Intérêt',
+        'anomalies': '🔴 Anomalies',
         'all': 'Tout'
     };
 
     const filterDescriptions: Record<string, string> = {
         'published': 'Articles déjà publiés sur la plateforme.',
-        'ready': 'Scorés (>8), Résumés, et prêts à être validés manuellement (Score > 8 + Résumé).',
-        'eligible': 'Candidats frais (<48h), Scorés (>8), avec > 2 sources. Prochaine étape : Rédaction IA.',
-        'incubating': 'Candidats frais (<48h) et bons (>8), mais trop petits (< 2 sources). En attente de grossir.',
-        'pending': 'Clusters récents détectés mais pas encore notés par l\'IA.',
-        'archived': 'Ont dépassé la date limite ou erreur technique avant résumé (Score OK, No Summary).',
+        'eligible': 'Clusters éligibles au rewriting automatique (score, fraîcheur, maturité, consensus sources).',
+        'incubating_maturity': 'Clusters valides mais bloqués par la maturité minimale avant rewriting.',
+        'incubating_sources': 'Clusters valides mais bloqués par manque de sources uniques.',
+        'pending': 'Clusters détectés mais pas encore scorés.',
+        'archived': 'Clusters valides mais hors fenêtre de fraîcheur avant rewriting.',
         'low_score': 'Rejetés automatiquement (Score < 8).',
+        'anomalies': 'Clusters incohérents (ex: summary présent alors que non publiés, cluster vide).',
         'all': 'Vue brute de tous les clusters.'
     };
 

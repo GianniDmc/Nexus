@@ -1,18 +1,16 @@
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { getServiceSupabase } from '@/lib/supabase-admin';
+import { parseBoundedInt } from '@/lib/http';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
-    const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
+    const supabase = getServiceSupabase();
 
     const { searchParams } = new URL(req.url);
-    const page = parseInt(searchParams.get('page') || '1');
-    const limit = parseInt(searchParams.get('limit') || '20');
+    const page = parseBoundedInt(searchParams.get('page'), 1, 1, 100000);
+    const limit = parseBoundedInt(searchParams.get('limit'), 20, 1, 200);
     const search = searchParams.get('search') || null;
     const status = searchParams.get('status') || 'all'; // 'all', 'published', 'unpublished', 'important'
     const sort = searchParams.get('sort') || 'date_desc'; // 'date_desc', 'score_desc', 'count_desc'

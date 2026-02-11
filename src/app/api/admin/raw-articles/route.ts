@@ -1,16 +1,14 @@
-import { createClient } from '@supabase/supabase-js';
+import { getServiceSupabase } from '@/lib/supabase-admin';
 import { NextResponse } from 'next/server';
+import { parseBoundedInt } from '@/lib/http';
 
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+const supabase = getServiceSupabase();
 
 export async function GET(request: Request) {
     try {
         const { searchParams } = new URL(request.url);
-        const page = parseInt(searchParams.get('page') || '1');
-        const limit = parseInt(searchParams.get('limit') || '50');
+        const page = parseBoundedInt(searchParams.get('page'), 1, 1, 100000);
+        const limit = parseBoundedInt(searchParams.get('limit'), 50, 1, 200);
         const search = searchParams.get('search') || '';
         const source = searchParams.get('source') || 'all';
 

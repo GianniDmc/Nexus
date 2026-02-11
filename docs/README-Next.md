@@ -21,7 +21,14 @@ Le middleware protège `/admin` et `/api/admin` via Basic Auth :
 
 ## Supabase
 - **Client public** : `src/lib/supabase.ts` (anon key)
-- **Serveur** : `createClient(...)` dans les API routes (service role)
+- **Serveur** : helper centralisé `src/lib/supabase-admin.ts` via `getServiceSupabase()`
+
+## Editorial State Machine
+- Source unique: `src/lib/editorial-state.ts`
+- Réutilisée par:
+  - `src/app/api/admin/articles/route.ts`
+  - `src/app/api/admin/stats/route.ts`
+  - `src/lib/pipeline/process.ts` (sélection rewriting)
 
 ## Rendu dynamique
 Certaines routes forcent le rendu dynamique (`export const dynamic = 'force-dynamic'`) pour éviter le cache.

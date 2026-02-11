@@ -42,3 +42,10 @@ Cette synthèse présente les décisions architecturales majeures prises lors de
 
 ## Conclusion
 Les choix effectués durant cette période ont permis de transformer un prototype en une plateforme de curation robuste et automatisée. L'architecture "cluster-centric" combinée à un moteur IA résilient place Nexus dans une position idéale pour monter en charge tout en maintenant une haute qualité éditoriale.
+
+## Addendum - 11 février 2026
+Un lot d'alignement a été déployé pour supprimer les incohérences de chiffres entre File éditoriale, Process et Dashboard:
+- machine à états éditoriale unifiée (`editorial-state`) utilisée partout,
+- séparation stricte des tabs "Attente maturité" et "Attente sources",
+- maturité calculée sur le premier article du cluster (fallback `created_at`),
+- dashboard enrichi avec des sous-totaux et deltas de réconciliation visibles.
