@@ -23,7 +23,7 @@ const toBool = (value?: string) => {
 
 async function main() {
   const step = (process.env.PROCESS_STEP as ProcessStep) || 'all';
-  const maxExecutionMs = toNumber(process.env.MAX_EXECUTION_MS) ?? (12 * 60 * 1000);
+  const maxExecutionMs = toNumber(process.env.MAX_EXECUTION_MS) ?? (18 * 60 * 1000);
 
   const publicationOverrides: PublicationOverrides = {
     publishThreshold: toNumber(process.env.PUBLISH_THRESHOLD),

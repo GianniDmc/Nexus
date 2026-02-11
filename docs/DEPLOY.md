@@ -79,11 +79,13 @@ L'approche la plus robuste et gratuite. Les workflows sont déjà configurés da
    | `PAID_GOOGLE_API_KEY` | *(Optionnel)* Clé Google payante pour mode turbo |
 
 2. **Workflows configurés** :
-   - `cron-ingest.yml` : Toutes les 2h, ingestion des sources RSS.
-   - `cron-process.yml` : Toutes les 15min, embedding, clustering, scoring, publication.
-     - Profil runtime : `gha`
+   - `cron-process.yml` : Orchestration pipeline (profil runtime `gha`).
+     - `17,47 * * * *` : process only
+     - `12 */2 * * *` : ingest puis process
+     - Skip process automatique si l'ingestion n'a ajouté aucun article
      - Budget process : `MAX_EXECUTION_MS=1080000` (18 min)
      - Timeout workflow : 30 min
+   - `cron-ingest.yml` : workflow manuel (`Run workflow`) pour debug ingestion.
 
 3. **Tester manuellement** : Va dans **Actions** > Sélectionne un workflow > **Run workflow**.
 

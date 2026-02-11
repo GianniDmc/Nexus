@@ -1,37 +1,130 @@
-name: Cron Process
+name: Cron Pipeline
 
 on:
   schedule:
-    - cron: "7,22,37,52 * * * *"
+    - cron: "17,47 * * * *"
+    - cron: "12 */2 * * *"
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "process_only | ingest_then_process | ingest_only"
+        required: false
+        default: "process_only"
+        type: choice
+        options:
+          - process_only
+          - ingest_then_process
+          - ingest_only
+      process_step:
+        description: "Step for process run"
+        required: false
+        default: "all"
+        type: choice
+        options:
+          - all
+          - embedding
+          - clustering
+          - scoring
+          - rewriting
+      max_execution_ms:
+        description: "Override process max execution in ms"
+        required: false
+        default: "1080000"
+        type: string
 
 concurrency:
-  group: cron-process
+  group: cron-pipeline
   cancel-in-progress: false
 
 jobs:
-  process:
+  pipeline:
     runs-on: ubuntu-latest
     environment: Production
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          
+
       - name: Cache node_modules
         id: cache-node-modules
         uses: actions/cache@v4
         with:
           path: node_modules
           key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
-          
+
       - name: Install Dependencies
         if: steps.cache-node-modules.outputs.cache-hit != 'true'
         run: npm ci
-      - run: npm run cron:process
+
+      - name: Resolve Mode
+        id: mode
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_SCHEDULE: ${{ github.event.schedule }}
+          INPUT_MODE: ${{ github.event.inputs.mode }}
+        run: |
+          set -euo pipefail
+          mode="process_only"
+          if [ "${EVENT_NAME}" = "schedule" ] && [ "${EVENT_SCHEDULE}" = "12 */2 * * *" ]; then
+            mode="ingest_then_process"
+          fi
+          if [ "${EVENT_NAME}" = "workflow_dispatch" ] && [ -n "${INPUT_MODE:-}" ]; then
+            mode="${INPUT_MODE}"
+          fi
+          echo "mode=${mode}" >> "$GITHUB_OUTPUT"
+          echo "Resolved mode: ${mode}"
+
+      - name: Run Ingest
+        id: ingest
+        if: steps.mode.outputs.mode == 'ingest_then_process' || steps.mode.outputs.mode == 'ingest_only'
+        run: |
+          set -euo pipefail
+          output="$(QUIET_LOGS=1 npm run -s cron:ingest)"
+          echo "${output}"
+          articles_ingested="$(printf '%s' "${output}" | node -e 'const fs = require("fs"); const raw = fs.readFileSync(0, "utf8").trim(); const data = JSON.parse(raw); process.stdout.write(String(data.articlesIngested ?? 0));')"
+          echo "articles_ingested=${articles_ingested}" >> "$GITHUB_OUTPUT"
+          echo "Ingested articles: ${articles_ingested}"
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      - name: Decide Process Run
+        id: decide
+        env:
+          MODE: ${{ steps.mode.outputs.mode }}
+          INGESTED: ${{ steps.ingest.outputs.articles_ingested }}
+        run: |
+          set -euo pipefail
+          should_process="true"
+          reason="scheduled process tick"
+
+          if [ "${MODE}" = "ingest_only" ]; then
+            should_process="false"
+            reason="ingest-only mode"
+          elif [ "${MODE}" = "ingest_then_process" ]; then
+            ingested="${INGESTED:-0}"
+            if ! [[ "${ingested}" =~ ^[0-9]+$ ]]; then
+              ingested="0"
+            fi
+            if [ "${ingested}" -gt 0 ]; then
+              should_process="true"
+              reason="ingest added ${ingested} articles"
+            else
+              should_process="false"
+              reason="ingest added 0 article"
+            fi
+          fi
+
+          echo "should_process=${should_process}" >> "$GITHUB_OUTPUT"
+          echo "reason=${reason}" >> "$GITHUB_OUTPUT"
+          echo "Decision: should_process=${should_process} (${reason})"
+
+      - name: Run Process
+        if: steps.decide.outputs.should_process == 'true'
+        run: npm run -s cron:process
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -40,4 +133,5 @@ jobs:
           PAID_OPENAI_API_KEY: ${{ secrets.PAID_OPENAI_API_KEY }}
           PAID_ANTHROPIC_API_KEY: ${{ secrets.PAID_ANTHROPIC_API_KEY }}
           PAID_GOOGLE_API_KEY: ${{ secrets.PAID_GOOGLE_API_KEY }}
-          MAX_EXECUTION_MS: "1080000"
+          PROCESS_STEP: ${{ github.event.inputs.process_step || 'all' }}
+          MAX_EXECUTION_MS: ${{ github.event.inputs.max_execution_ms || '1080000' }}
