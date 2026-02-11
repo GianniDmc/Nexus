@@ -211,6 +211,7 @@ Les jobs de cron sont externalisés dans `.github/workflows/` pour éviter les l
   - `12 */2 * * *` : tick `ingest_then_process`.
   - Pre-check backlog en `process_only` (`cron:should-process`) pour éviter les exécutions vides.
   - Skip du process sur le tick ingest si `articlesIngested = 0`.
+  - Sur `ingest_then_process`, drain par étapes (`embedding` → `clustering` → `scoring` → `rewriting`) avec boucles bornées.
   - `MAX_EXECUTION_MS=1080000`, timeout workflow 30min.
 - **cron-ingest.yml** : lancement manuel uniquement (`workflow_dispatch`) pour debug.
 

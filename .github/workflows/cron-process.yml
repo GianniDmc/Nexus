@@ -31,6 +31,16 @@ on:
         required: false
         default: "1080000"
         type: string
+      stage_max_execution_ms:
+        description: "Per-step max execution in ms for ingest_then_process"
+        required: false
+        default: "240000"
+        type: string
+      max_cycles_per_step:
+        description: "Max process cycles per step for ingest_then_process"
+        required: false
+        default: "4"
+        type: string
 
 concurrency:
   group: cron-pipeline
@@ -150,9 +160,12 @@ jobs:
           echo "reason=${reason}" >> "$GITHUB_OUTPUT"
           echo "Decision: should_process=${should_process} (${reason})"
 
-      - name: Run Process
-        if: steps.decide.outputs.should_process == 'true'
-        run: npm run -s cron:process
+      - name: Run Process (process_only)
+        if: steps.decide.outputs.should_process == 'true' && steps.mode.outputs.mode == 'process_only'
+        run: |
+          set -euo pipefail
+          output="$(QUIET_LOGS=1 npm run -s cron:process)"
+          echo "${output}"
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -163,3 +176,67 @@ jobs:
           PAID_GOOGLE_API_KEY: ${{ secrets.PAID_GOOGLE_API_KEY }}
           PROCESS_STEP: ${{ github.event.inputs.process_step || 'all' }}
           MAX_EXECUTION_MS: ${{ github.event.inputs.max_execution_ms || '1080000' }}
+      - name: Run Process By Step (ingest_then_process)
+        if: steps.decide.outputs.should_process == 'true' && steps.mode.outputs.mode == 'ingest_then_process'
+        run: |
+          set -euo pipefail
+          per_step_max_ms="${PER_STEP_MAX_EXECUTION_MS:-240000}"
+          max_cycles_per_step="${MAX_CYCLES_PER_STEP:-4}"
+
+          if ! [[ "${per_step_max_ms}" =~ ^[0-9]+$ ]]; then
+            per_step_max_ms="240000"
+          fi
+          if ! [[ "${max_cycles_per_step}" =~ ^[0-9]+$ ]]; then
+            max_cycles_per_step="4"
+          fi
+
+          for step in embedding clustering scoring rewriting; do
+            echo "== Drain step: ${step} (max_cycles=${max_cycles_per_step}, max_ms=${per_step_max_ms}) =="
+            cycle=1
+            while [ "${cycle}" -le "${max_cycles_per_step}" ]; do
+              output="$(QUIET_LOGS=1 PROCESS_STEP="${step}" MAX_EXECUTION_MS="${per_step_max_ms}" npm run -s cron:process)"
+              echo "${output}"
+
+              processed="$(printf '%s' "${output}" | node -e 'const fs = require("fs"); const step = process.argv[1]; const raw = fs.readFileSync(0, "utf8").trim(); const data = JSON.parse(raw); process.stdout.write(String(data?.processed?.[step] ?? 0));' "${step}")"
+              stopped="$(printf '%s' "${output}" | node -e 'const fs = require("fs"); const raw = fs.readFileSync(0, "utf8").trim(); const data = JSON.parse(raw); process.stdout.write(data?.processed?.stopped ? "true" : "false");')"
+              retry_after="$(printf '%s' "${output}" | node -e 'const fs = require("fs"); const raw = fs.readFileSync(0, "utf8").trim(); const data = JSON.parse(raw); process.stdout.write(String(data?.retryAfter ?? 0));')"
+              success="$(printf '%s' "${output}" | node -e 'const fs = require("fs"); const raw = fs.readFileSync(0, "utf8").trim(); const data = JSON.parse(raw); process.stdout.write(data?.success ? "true" : "false");')"
+
+              echo "Step ${step} cycle ${cycle}: processed=${processed} stopped=${stopped} success=${success} retryAfter=${retry_after}"
+
+              if [ "${stopped}" = "true" ]; then
+                echo "Server stop requested. Ending staged process run."
+                exit 0
+              fi
+
+              if ! [[ "${processed}" =~ ^[0-9]+$ ]]; then
+                processed="0"
+              fi
+
+              if [ "${success}" != "true" ] && [[ "${retry_after}" =~ ^[0-9]+$ ]] && [ "${retry_after}" -gt 0 ]; then
+                echo "Rate limit detected on step ${step}. Sleeping ${retry_after}s before retry."
+                sleep "${retry_after}"
+                cycle=$((cycle + 1))
+                continue
+              fi
+
+              if [ "${processed}" -eq 0 ]; then
+                echo "Step ${step} drained."
+                break
+              fi
+
+              cycle=$((cycle + 1))
+            done
+          done
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          PAID_OPENAI_API_KEY: ${{ secrets.PAID_OPENAI_API_KEY }}
+          PAID_ANTHROPIC_API_KEY: ${{ secrets.PAID_ANTHROPIC_API_KEY }}
+          PAID_GOOGLE_API_KEY: ${{ secrets.PAID_GOOGLE_API_KEY }}
+          PROCESS_STEP: ${{ github.event.inputs.process_step || 'all' }}
+          MAX_EXECUTION_MS: ${{ github.event.inputs.max_execution_ms || '1080000' }}
+          PER_STEP_MAX_EXECUTION_MS: ${{ github.event.inputs.stage_max_execution_ms || '240000' }}
+          MAX_CYCLES_PER_STEP: ${{ github.event.inputs.max_cycles_per_step || '4' }}

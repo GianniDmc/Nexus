@@ -22,6 +22,8 @@ const toBool = (value?: string) => {
 };
 
 async function main() {
+  const quietLogs = process.env.QUIET_LOGS === '1';
+  const log = quietLogs ? () => {} : console.log;
   const step = (process.env.PROCESS_STEP as ProcessStep) || 'all';
   const maxExecutionMs = toNumber(process.env.MAX_EXECUTION_MS) ?? (18 * 60 * 1000);
 
@@ -42,13 +44,16 @@ async function main() {
     publicationOverrides,
     maxExecutionMs: toNumber(process.env.MAX_EXECUTION_MS) !== undefined ? maxExecutionMs : undefined,
     useProcessingState: process.env.USE_PROCESSING_STATE !== 'false',
+    log,
   });
 
   console.log(JSON.stringify(result));
 
   if (!result.success) {
     if (result.retryAfter) {
-      console.warn(`[CRON PROCESS] Rate limited. retryAfter=${result.retryAfter}s`);
+      if (!quietLogs) {
+        console.warn(`[CRON PROCESS] Rate limited. retryAfter=${result.retryAfter}s`);
+      }
       return;
     }
     process.exitCode = 1;
