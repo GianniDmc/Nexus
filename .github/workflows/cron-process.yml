@@ -94,7 +94,10 @@ jobs:
           set -euo pipefail
           output="$(QUIET_LOGS=1 npm run -s cron:ingest)"
           echo "${output}"
-          json_line="$(printf '%s\n' "${output}" | sed -n 's/^__CRON_JSON__//p' | tail -n 1)"
+          json_line="$(printf '%s\n' "${output}" | sed -n 's/.*__CRON_JSON__//p' | tail -n 1)"
+          if [ -z "${json_line}" ]; then
+            json_line="$(printf '%s\n' "${output}" | sed -n '/^[[:space:]]*{.*}[[:space:]]*$/p' | tail -n 1)"
+          fi
           if [ -z "${json_line}" ]; then
             articles_ingested="unknown"
           else
@@ -113,7 +116,10 @@ jobs:
           set -euo pipefail
           output="$(npm run -s cron:should-process)"
           echo "${output}"
-          json_line="$(printf '%s\n' "${output}" | sed -n 's/^__CRON_JSON__//p' | tail -n 1)"
+          json_line="$(printf '%s\n' "${output}" | sed -n 's/.*__CRON_JSON__//p' | tail -n 1)"
+          if [ -z "${json_line}" ]; then
+            json_line="$(printf '%s\n' "${output}" | sed -n '/^[[:space:]]*{.*}[[:space:]]*$/p' | tail -n 1)"
+          fi
           should_process="$(node -e 'const raw = process.argv[1] || ""; let value = true; try { const data = JSON.parse(raw); value = !!data?.shouldProcess; } catch {} process.stdout.write(value ? "true" : "false");' "${json_line}")"
           reason="$(node -e 'const raw = process.argv[1] || ""; let value = "precheck_parse_fallback"; try { const data = JSON.parse(raw); const reasons = Array.isArray(data?.reasons) ? data.reasons.join(",") : ""; value = reasons || "no_backlog"; } catch {} process.stdout.write(value);' "${json_line}")"
           echo "should_process=${should_process}" >> "$GITHUB_OUTPUT"
@@ -207,7 +213,10 @@ jobs:
             while [ "${cycle}" -le "${max_cycles_per_step}" ]; do
               output="$(QUIET_LOGS=1 PROCESS_STEP="${step}" MAX_EXECUTION_MS="${per_step_max_ms}" npm run -s cron:process)"
               echo "${output}"
-              json_line="$(printf '%s\n' "${output}" | sed -n 's/^__CRON_JSON__//p' | tail -n 1)"
+              json_line="$(printf '%s\n' "${output}" | sed -n 's/.*__CRON_JSON__//p' | tail -n 1)"
+              if [ -z "${json_line}" ]; then
+                json_line="$(printf '%s\n' "${output}" | sed -n '/^[[:space:]]*{.*}[[:space:]]*$/p' | tail -n 1)"
+              fi
 
               processed="$(node -e 'const step = process.argv[1]; const raw = process.argv[2] || ""; let value = 0; try { const data = JSON.parse(raw); value = Number(data?.processed?.[step] ?? 0); if (!Number.isFinite(value)) value = 0; } catch {} process.stdout.write(String(Math.max(0, Math.trunc(value))));' "${step}" "${json_line}")"
               stopped="$(node -e 'const raw = process.argv[1] || ""; let value = false; try { const data = JSON.parse(raw); value = !!data?.processed?.stopped; } catch {} process.stdout.write(value ? "true" : "false");' "${json_line}")"
