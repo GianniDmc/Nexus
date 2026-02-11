@@ -38,8 +38,9 @@ async function main() {
   const result = await runProcess({
     step,
     config,
+    executionProfile: 'gha',
     publicationOverrides,
-    maxExecutionMs,
+    maxExecutionMs: toNumber(process.env.MAX_EXECUTION_MS) !== undefined ? maxExecutionMs : undefined,
     useProcessingState: process.env.USE_PROCESSING_STATE !== 'false',
   });
 

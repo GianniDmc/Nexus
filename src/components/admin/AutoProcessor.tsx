@@ -40,7 +40,7 @@ export function AutoProcessor({ onStatsUpdate }: { onStatsUpdate?: () => void })
             const res = await fetch('/api/process', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ step: 'all', config: aiConfig }),
+                body: JSON.stringify({ step: 'all', config: aiConfig, executionProfile: 'manual' }),
                 signal: abortControllerRef.current?.signal
             });
 
@@ -84,7 +84,7 @@ export function AutoProcessor({ onStatsUpdate }: { onStatsUpdate?: () => void })
                 // If queue is empty, try to fetch new articles
                 addLog("📭 File de traitement vide. Tentative d'ingestion...");
                 try {
-                    const ingestRes = await fetch('/api/ingest');
+                    const ingestRes = await fetch('/api/ingest?profile=manual');
                     const ingestData = await ingestRes.json();
                     if (ingestData.success && ingestData.articlesIngested > 0) {
                         addLog(`📥 Nouveaux articles récupérés: ${ingestData.articlesIngested}`);
@@ -132,7 +132,7 @@ export function AutoProcessor({ onStatsUpdate }: { onStatsUpdate?: () => void })
         // 1. Force Ingest fresh news first
         addLog("🌍 Vérification des sources RSS...");
         try {
-            const ingestRes = await fetch('/api/ingest');
+            const ingestRes = await fetch('/api/ingest?profile=manual');
             const ingestData = await ingestRes.json();
             if (ingestData.success && ingestData.articlesIngested > 0) {
                 addLog(`✅ ${ingestData.articlesIngested} nouveaux articles récupérés.`);

@@ -81,6 +81,9 @@ L'approche la plus robuste et gratuite. Les workflows sont déjà configurés da
 2. **Workflows configurés** :
    - `cron-ingest.yml` : Toutes les 2h, ingestion des sources RSS.
    - `cron-process.yml` : Toutes les 15min, embedding, clustering, scoring, publication.
+     - Profil runtime : `gha`
+     - Budget process : `MAX_EXECUTION_MS=1080000` (18 min)
+     - Timeout workflow : 30 min
 
 3. **Tester manuellement** : Va dans **Actions** > Sélectionne un workflow > **Run workflow**.
 
@@ -91,7 +94,7 @@ L'approche la plus robuste et gratuite. Les workflows sont déjà configurés da
 ### Option 2 : cron-job.org (Simple)
 1.  Crée un compte gratuit sur [cron-job.org](https://cron-job.org/).
 2.  Crée un nouveau "Cron Job".
-3.  **URL** : `https://ton-projet-vercel.app/api/refresh` (ingestion + processing).
+3.  **URL** : `https://ton-projet-vercel.app/api/admin/refresh` (ingestion + processing).
 4.  **Schedule** : Choisis "Every 15 minutes" ou "Every hour".
 5.  **Sauvegarde**.
 
@@ -115,7 +118,7 @@ Si tu préfères tout gérer dans Supabase :
       $$
       select
         net.http_get(
-            url:='https://ton-projet-vercel.app/api/refresh',
+            url:='https://ton-projet-vercel.app/api/admin/refresh',
             headers:='{"Authorization": "Basic ... (si admin protégé) ou rien si public"}'
         ) as request_id;
       $$
@@ -124,8 +127,11 @@ Si tu préfères tout gérer dans Supabase :
     *Note : Cette méthode nécessite que ton projet Database ait accès à internet via `pg_net`.*
 
 ## 5. Sécurité (Optionnel mais recommandé)
-La page `/admin` est actuellement accessible à tous si l'URL est connue.
-Pour une version production, il serait idéal d'ajouter une authentification simple (Middleware Next.js) ou d'utiliser Supabase Auth sur cette route.
+`/admin` et `/api/admin/*` sont protégés en Basic Auth (middleware) via `ADMIN_USER` et `ADMIN_PASSWORD`.
+Pour la production, il est recommandé d'ajouter en plus :
+- une rotation régulière des credentials,
+- un filtrage IP (si possible),
+- un secret dédié pour les endpoints pipeline publics (`/api/ingest`, `/api/process`) si exposés.
 
 ---
 

@@ -29,6 +29,9 @@ Ce document recense les améliorations techniques et fonctionnelles prévues pou
 - [x] **Restauration CMS & Inspection** : Vue "Raw Articles" complète avec filtres (Source, Cluster), inspection JSON et navigation inter-clusters.
 - [x] **CI/CD GitHub Actions** : Externalisation des crons (ingest toutes les 2h, process toutes les 15min) hors Vercel pour éviter les timeouts. Scripts standalone avec chargement `dotenv`.
 - [x] **Alignement Editorial/Process/Stats** : classifier éditorial unifié (`editorial-state`), tabs exclusives (maturité vs sources), maturité basée sur le premier article, et dashboard avec décomposition + deltas de réconciliation.
+- [x] **Execution Policy centralisée** : profils runtime `api/manual/refresh/gha` pour ingest + process, avec bornes de sécurité sur overrides.
+- [x] **Pipeline Process modulaire** : refactor `process.ts` en orchestrateur + étapes dédiées (`embedding`, `clustering`, `scoring`, `rewriting`) avec contexte/types partagés.
+- [x] **Tuning GitHub Actions** : `cron-process` ajusté à `MAX_EXECUTION_MS=1080000` (18 min budget process) et timeout workflow 30 min.
 
 ## 🔮 Améliorations Futures (Backlog)
 

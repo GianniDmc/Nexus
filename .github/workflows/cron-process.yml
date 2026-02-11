@@ -13,7 +13,7 @@ jobs:
   process:
     runs-on: ubuntu-latest
     environment: Production
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       
@@ -40,4 +40,4 @@ jobs:
           PAID_OPENAI_API_KEY: ${{ secrets.PAID_OPENAI_API_KEY }}
           PAID_ANTHROPIC_API_KEY: ${{ secrets.PAID_ANTHROPIC_API_KEY }}
           PAID_GOOGLE_API_KEY: ${{ secrets.PAID_GOOGLE_API_KEY }}
-          MAX_EXECUTION_MS: "720000"
+          MAX_EXECUTION_MS: "1080000"
