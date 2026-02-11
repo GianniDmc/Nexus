@@ -24,6 +24,7 @@ Les API routes sont définies dans `src/app/api/**/route.ts`.
 - `api/ingest` accepte `profile` (query).
 - `api/admin/refresh` force le profil `refresh`.
 - Les scripts `scripts/cron-process.ts` et `scripts/cron-ingest.ts` forcent le profil `gha`.
+- Le script `scripts/cron-should-process.ts` sert de pré-check backlog pour skipper les ticks `process_only` vides en CI.
 - Les composants admin `AutoProcessor` et `ManualSteps` forcent le profil `manual`.
 
 ## Pipeline Modulaire

@@ -82,6 +82,7 @@ L'approche la plus robuste et gratuite. Les workflows sont déjà configurés da
    - `cron-process.yml` : Orchestration pipeline (profil runtime `gha`).
      - `17,47 * * * *` : process only
      - `12 */2 * * *` : ingest puis process
+     - Pré-check backlog sur `process_only` pour skip les runs vides
      - Skip process automatique si l'ingestion n'a ajouté aucun article
      - Budget process : `MAX_EXECUTION_MS=1080000` (18 min)
      - Timeout workflow : 30 min
