@@ -5,6 +5,22 @@ interface ScrapedArticle {
     fullContent: string | null;
 }
 
+function isScraperQuiet(): boolean {
+    return process.env.QUIET_LOGS === '1' || process.env.SCRAPER_QUIET === '1';
+}
+
+function scraperWarn(message: string): void {
+    if (!isScraperQuiet()) {
+        console.warn(message);
+    }
+}
+
+function scraperInfo(message: string): void {
+    if (!isScraperQuiet()) {
+        console.log(message);
+    }
+}
+
 /**
  * Scrape an article page to extract og:image and main content.
  * Returns partial data if some extraction fails.
@@ -17,7 +33,7 @@ export async function scrapeArticle(url: string): Promise<ScrapedArticle> {
 
     // Skip scraping for known binary files
     if (url.match(/\.(pdf|jpg|jpeg|png|gif|zip|rar|dmg)$/i)) {
-        console.log(`[SCRAPER] Skipping binary file: ${url}`);
+        scraperInfo(`[SCRAPER] Skipping binary file: ${url}`);
         return result;
     }
 
@@ -41,7 +57,7 @@ export async function scrapeArticle(url: string): Promise<ScrapedArticle> {
         if (!response.ok) {
             // Retry with generic agent for 403s
             if (response.status === 403) {
-                console.warn(`[SCRAPER] Browser agent failed for ${url} (403), retrying with generic agent...`);
+                scraperWarn(`[SCRAPER] Browser agent failed for ${url} (403), retrying with generic agent...`);
                 try {
                     const retryResponse = await fetch(url, {
                         headers: {
@@ -55,20 +71,21 @@ export async function scrapeArticle(url: string): Promise<ScrapedArticle> {
                         const html = await retryResponse.text();
                         return parseHtml(html); // Helper function extraction needed or duplicate logic
                     }
-                } catch (e) {
-                    console.warn(`[SCRAPER] Retry failed for ${url}`);
+                } catch {
+                    scraperWarn(`[SCRAPER] Retry failed for ${url}`);
                 }
             }
 
-            console.warn(`Failed to fetch ${url}: ${response.status}`);
+            scraperWarn(`Failed to fetch ${url}: ${response.status}`);
             return result;
         }
 
         const html = await response.text();
         return parseHtml(html);
 
-    } catch (error: any) {
-        console.warn(`Scraping error for ${url}:`, error.message);
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        scraperWarn(`Scraping error for ${url}: ${message}`);
     }
 
     return result;
