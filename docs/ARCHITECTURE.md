@@ -15,7 +15,7 @@ graph TD
 ### Endpoints principaux
 - **`/api/ingest`** : parse les RSS, scrape le contenu complet, ignore les articles trop anciens.
 - **`/api/process`** : pipeline séquentiel (`embedding` → `clustering` → `scoring` → `rewriting/publish`).
-- **`/api/refresh`** : enchaîne ingestion + 1–3 cycles de processing.
+- **`/api/admin/refresh`** : enchaîne ingestion + 1–N cycles de processing bornés.
 - **`/api/digest`** : génère un digest à la demande à partir des articles résumés des dernières 24h.
 
 ## 2. Stratégie IA (Janvier 2026)
@@ -34,9 +34,16 @@ Ordre de priorité côté serveur :
 3. **Clés par défaut** (ex: `GOOGLE_API_KEY`)
 4. **Fallback Groq** (`GROQ_API_KEY`)
 
-### Mode Turbo (si clé payante)
-- **`processingLimit`** : 50 éléments par cycle (au lieu de 10)
-- **`llmDelayMs`** : 100 ms (au lieu de 2500 ms)
+### Throughput Mode (gratuit vs payant)
+Le débit `process` dépend de la présence d'une clé payante active (user key ou `PAID_*` env).  
+Les valeurs sont résolues par profil d'exécution dans `src/lib/pipeline/execution-policy.ts`.
+
+| Profil | `processingLimit` free/paid | `llmDelayMs` free/paid |
+| :--- | :--- | :--- |
+| `api` | 8 / 24 | 3000 / 250 |
+| `manual` | 12 / 45 | 2000 / 120 |
+| `refresh` | 8 / 20 | 2500 / 200 |
+| `gha` | 24 / 100 | 900 / 60 |
 
 ## 3. Règles de Publication (centralisées)
 Définies dans `src/lib/publication-rules.ts` et réutilisées par l'admin + l'API.
@@ -88,6 +95,68 @@ Boucle automatique côté Admin :
 2. Enchaîne `process` tant qu'il reste des éléments.
 3. Gère les erreurs 429 (backoff) et les pauses quand la file est vide.
 
+### Orchestration modulaire du process
+Le `process.ts` joue uniquement le rôle d'orchestrateur.  
+Chaque étape est isolée et testable séparément :
+- `src/lib/pipeline/steps/embedding-step.ts`
+- `src/lib/pipeline/steps/clustering-step.ts`
+- `src/lib/pipeline/steps/scoring-step.ts`
+- `src/lib/pipeline/steps/rewriting-step.ts`
+
+Types/context partagés :
+- `src/lib/pipeline/types.ts` : API du pipeline (`ProcessOptions`, `ProcessResult`, `ProcessStep`).
+- `src/lib/pipeline/process-context.ts` : contrat d'exécution injecté dans chaque étape.
+
+### Profils d'Exécution (ingest/process)
+Les contraintes runtime sont centralisées dans `src/lib/pipeline/execution-policy.ts`.
+
+Profils supportés:
+- `api` : routes API standard.
+- `manual` : actions déclenchées depuis l'UI admin.
+- `refresh` : exécution bornée pour `/api/admin/refresh`.
+- `gha` : crons GitHub Actions (fenêtre d'exécution longue).
+
+#### Matrice Process (février 2026)
+| Profil | `maxExecutionMs` | `processingLimit` (free/paid) | `llmDelayMs` (free/paid) | Usage principal |
+| :--- | :--- | :--- | :--- | :--- |
+| `api` | 120000 (2 min) | 8 / 24 | 3000 / 250 | Appels API unitaires |
+| `manual` | 360000 (6 min) | 12 / 45 | 2000 / 120 | Boucles interactives admin |
+| `refresh` | 75000 (75 s) | 8 / 20 | 2500 / 200 | `/api/admin/refresh` anti-timeout |
+| `gha` | 1080000 (18 min) | 24 / 100 | 900 / 60 | Cron GitHub Actions |
+
+#### Matrice Ingest (février 2026)
+| Profil | `batchSize` | `batchDelayMs` | `sourceConcurrency` | `sourceTimeoutMs` | `retrySourceTimeoutMs` |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `api` | 8 | 250 | 6 | 9000 | 8000 |
+| `manual` | 12 | 120 | 8 | 10000 | 9000 |
+| `refresh` | 6 | 300 | 4 | 7000 | 6000 |
+| `gha` | 24 | 40 | 14 | 15000 | 12000 |
+
+#### Overrides, bornes et priorité
+Priorité de résolution:
+1. Valeurs par profil (source de vérité).
+2. Mode throughput (`free`/`paid`) selon présence de clés payantes.
+3. Overrides explicites, avec clamp :
+   - process : query/body sur `/api/process`
+   - ingest : options runtime via scripts (`cron-ingest.ts`, appels internes)
+
+Bornes de sécurité:
+- `maxExecutionMs`: 10000 → 3600000
+- `processingLimit`: 1 → 500
+- `llmDelayMs`: 0 → 30000
+- `useProcessingState`: booléen (default `true`, non clampé)
+- `batchSize`: 1 → 200
+- `batchDelayMs`: 0 → 10000
+- `sourceConcurrency`: 1 → 100
+- `sourceTimeoutMs` / `retrySourceTimeoutMs`: 1000 → 120000
+
+Consommateurs des profils:
+- `/api/process` : `executionProfile` (body) ou `profile` (query), default `api`.
+- `/api/ingest` : `profile` (query), default `api`.
+- `/api/admin/refresh` : force profil `refresh`.
+- `scripts/cron-process.ts` + `scripts/cron-ingest.ts` : force profil `gha`.
+- `AutoProcessor` / `ManualSteps` : appellent `manual`.
+
 ## 5. Console Admin
 La console `/admin` centralise les opérations métiers.
 
@@ -138,7 +207,7 @@ Des scripts Node.js (`scripts/`) servent aux audits et migrations ponctuelles :
 ## 9. Automatisation (GitHub Actions)
 Les jobs de cron sont externalisés dans `.github/workflows/` pour éviter les limites Vercel (timeout 300s) :
 - **cron-ingest.yml** : Toutes les 2h, `npm run cron:ingest`.
-- **cron-process.yml** : Toutes les 15min, `npm run cron:process` (12min max).
+- **cron-process.yml** : Toutes les 15min, `npm run cron:process` (`MAX_EXECUTION_MS=1080000`, budget process 18min, timeout workflow 30min).
 
 Les scripts utilisent `dotenv` pour charger `.env.local` en développement local, mais reçoivent les secrets via `secrets.*` en CI.
 

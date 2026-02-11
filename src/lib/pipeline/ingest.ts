@@ -1,7 +1,9 @@
 import Parser from 'rss-parser';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { getServiceSupabase } from '../supabase-admin';
 import { scrapeArticle } from '../scraper';
 import { getIngestionCutoff, PUBLICATION_RULES } from '../publication-rules';
+import { resolveIngestExecutionPolicy, type ExecutionProfile } from './execution-policy';
 
 // Configuration du parser avec un User-Agent pour éviter les blocages (403/404)
 const parser = new Parser({
@@ -15,9 +17,12 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export interface IngestOptions {
   sourceFilter?: string;
+  executionProfile?: ExecutionProfile;
   batchSize?: number;
   batchDelayMs?: number;
   sourceConcurrency?: number;
+  sourceTimeoutMs?: number;
+  retrySourceTimeoutMs?: number;
   log?: (message: string) => void;
 }
 
@@ -27,20 +32,41 @@ export interface IngestResult {
   failedSources: { source: string; error: string }[];
 }
 
-// Defaults aligned with existing route behavior
-const DEFAULT_BATCH_SIZE = 10;
-const DEFAULT_BATCH_DELAY_MS = 200;
-const DEFAULT_SOURCE_CONCURRENCY = 10;
+type ActiveSource = {
+  id: string;
+  name: string;
+  url: string;
+  category: string;
+};
+
+type ArticleInsertPayload = {
+  title: string;
+  content: string;
+  source_url: string;
+  source_name: string;
+  author: string | undefined;
+  published_at: string;
+  category: string;
+  image_url: string | null;
+};
+
+type SourceProcessResult =
+  | { success: true; sourceName: string; added: number }
+  | { success: false; sourceName: string; error: string };
+
+function getItemAuthor(item: Parser.Item): string | undefined {
+  const withLegacyAuthor = item as Parser.Item & { author?: string };
+  return item.creator || withLegacyAuthor.author;
+}
 
 // Fonction pour traiter un batch d'articles en parallèle
 async function processBatch(
   items: Parser.Item[],
-  source: { name: string; category: string },
-  supabase: any,
+  source: ActiveSource,
+  supabase: SupabaseClient,
   log: (message: string) => void
-): Promise<{ added: number; results: any[] }> {
+): Promise<{ added: number }> {
   let added = 0;
-  const results: any[] = [];
 
   const processedItems = await Promise.all(
     items.map(async (item) => {
@@ -65,46 +91,45 @@ async function processBatch(
 
       return {
         title: item.title || 'Sans titre',
-        content: content,
+        content,
         source_url: item.link,
         source_name: source.name,
-        author: item.creator || (item as any).author,
+        author: getItemAuthor(item),
         published_at: item.isoDate ? new Date(item.isoDate).toISOString() : new Date().toISOString(),
         category: source.category,
         image_url: imageUrl,
-      };
+      } satisfies ArticleInsertPayload;
     })
   );
 
   // Filter out null items and batch upsert
-  const validItems = processedItems.filter(item => item !== null);
+  const validItems = processedItems.filter((item): item is ArticleInsertPayload => item !== null);
 
   if (validItems.length > 0) {
     const { data, error } = await supabase
       .from('articles')
-      .upsert(validItems as any, { onConflict: 'source_url', ignoreDuplicates: true })
+      .upsert(validItems, { onConflict: 'source_url', ignoreDuplicates: true })
       .select();
 
     if (error) {
       log(`[INGEST] Batch upsert failed: ${error.message}`);
     } else if (data) {
       added = data.length;
-      results.push(...data);
     }
   }
 
-  return { added, results };
+  return { added };
 }
 
 async function processSource(
-  source: any,
-  supabase: any,
+  source: ActiveSource,
+  supabase: SupabaseClient,
   batchSize: number,
   batchDelayMs: number,
+  sourceTimeoutMs: number,
+  retrySourceTimeoutMs: number,
   log: (message: string) => void
-) {
-  const results: any[] = [];
-
+) : Promise<SourceProcessResult> {
   try {
     let feedText: string;
 
@@ -116,7 +141,8 @@ async function processSource(
         'Accept-Language': 'en-US,en;q=0.9',
         'Cache-Control': 'no-cache',
         'Pragma': 'no-cache'
-      }
+      },
+      signal: AbortSignal.timeout(sourceTimeoutMs)
     });
 
     if (!feedResponse.ok) {
@@ -126,7 +152,8 @@ async function processSource(
         headers: {
           'User-Agent': 'RSSReader/1.0 (compatible; MSIE 6.0; Windows NT 5.1)',
           'Accept': '*/*'
-        }
+        },
+        signal: AbortSignal.timeout(retrySourceTimeoutMs)
       });
       if (!retryResponse.ok) {
         throw new Error(`Failed to fetch RSS: ${retryResponse.status} ${retryResponse.statusText}`);
@@ -141,7 +168,7 @@ async function processSource(
     const ingestionCutoff = getIngestionCutoff();
     const allItems = feed.items;
 
-    const validItems = allItems.filter((item: any) => {
+    const validItems = allItems.filter((item) => {
       if (!item.link) return false;
       const pubDate = item.isoDate ? new Date(item.isoDate) : (item.pubDate ? new Date(item.pubDate) : new Date());
       return pubDate >= ingestionCutoff;
@@ -155,10 +182,9 @@ async function processSource(
     // Process items in batches
     for (let i = 0; i < validItems.length; i += batchSize) {
       const batch = validItems.slice(i, i + batchSize);
-      const { added, results: batchResults } = await processBatch(batch, source, supabase, log);
+      const { added } = await processBatch(batch, source, supabase, log);
 
       totalAdded += added;
-      results.push(...batchResults);
 
       // Small delay between batches to be respectful to source servers
       if (i + batchSize < validItems.length) {
@@ -173,11 +199,12 @@ async function processSource(
       .update({ last_fetched_at: new Date().toISOString() })
       .eq('id', source.id);
 
-    return { success: true, results, sourceName: source.name };
+    return { success: true, added: totalAdded, sourceName: source.name };
 
-  } catch (sourceError: any) {
-    log(`Erreur sur la source ${source.name}: ${sourceError.message}`);
-    return { success: false, error: sourceError.message, sourceName: source.name };
+  } catch (sourceError: unknown) {
+    const message = sourceError instanceof Error ? sourceError.message : 'Unknown error';
+    log(`Erreur sur la source ${source.name}: ${message}`);
+    return { success: false, error: message, sourceName: source.name };
   }
 }
 
@@ -185,9 +212,21 @@ export async function runIngest(options: IngestOptions = {}): Promise<IngestResu
   const supabase = getServiceSupabase();
 
   const log = options.log || console.log;
-  const batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
-  const batchDelayMs = options.batchDelayMs ?? DEFAULT_BATCH_DELAY_MS;
-  const sourceConcurrency = options.sourceConcurrency ?? DEFAULT_SOURCE_CONCURRENCY;
+  const executionPolicy = resolveIngestExecutionPolicy({
+    profile: options.executionProfile,
+    overrides: {
+      batchSize: options.batchSize,
+      batchDelayMs: options.batchDelayMs,
+      sourceConcurrency: options.sourceConcurrency,
+      sourceTimeoutMs: options.sourceTimeoutMs,
+      retrySourceTimeoutMs: options.retrySourceTimeoutMs,
+    },
+  });
+  const batchSize = executionPolicy.batchSize;
+  const batchDelayMs = executionPolicy.batchDelayMs;
+  const sourceConcurrency = executionPolicy.sourceConcurrency;
+  const sourceTimeoutMs = executionPolicy.sourceTimeoutMs;
+  const retrySourceTimeoutMs = executionPolicy.retrySourceTimeoutMs;
 
   const sourceFilter = options.sourceFilter;
 
@@ -202,23 +241,31 @@ export async function runIngest(options: IngestOptions = {}): Promise<IngestResu
 
     if (sourcesError) throw sourcesError;
 
-    const allResults: any[] = [];
+    let totalAdded = 0;
     const allErrors: { source: string; error: string }[] = [];
 
-    const safeSources = sources || [];
+    const safeSources = (sources || []) as ActiveSource[];
 
     // Process sources in chunks for concurrency
     for (let i = 0; i < safeSources.length; i += sourceConcurrency) {
       const chunk = safeSources.slice(i, i + sourceConcurrency);
       const chunkPromises = chunk.map(source =>
-        processSource(source, supabase, batchSize, batchDelayMs, log)
+        processSource(
+          source,
+          supabase,
+          batchSize,
+          batchDelayMs,
+          sourceTimeoutMs,
+          retrySourceTimeoutMs,
+          log
+        )
       );
 
-      const chunkResults = (await Promise.all(chunkPromises)) as any[];
+      const chunkResults = await Promise.all(chunkPromises);
 
       for (const res of chunkResults) {
-        if (res.success && res.results) {
-          allResults.push(...res.results);
+        if (res.success) {
+          totalAdded += res.added;
         } else {
           allErrors.push({ source: res.sourceName, error: res.error });
         }
@@ -227,14 +274,15 @@ export async function runIngest(options: IngestOptions = {}): Promise<IngestResu
 
     return {
       success: true,
-      articlesIngested: allResults.length,
+      articlesIngested: totalAdded,
       failedSources: allErrors
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
     return {
       success: false,
       articlesIngested: 0,
-      failedSources: [{ source: 'global', error: error.message || 'Unknown error' }]
+      failedSources: [{ source: 'global', error: message }]
     };
   }
 }

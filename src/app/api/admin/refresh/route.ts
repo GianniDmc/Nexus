@@ -11,14 +11,13 @@ async function runRefresh(req: Request) {
   const maxCycles = parseBoundedInt(searchParams.get('cycles'), 3, 1, 10);
 
   try {
-    const ingestData = await runIngest({ sourceFilter });
+    const ingestData = await runIngest({ sourceFilter, executionProfile: 'refresh' });
 
     const processResults = [];
     for (let i = 0; i < maxCycles; i++) {
       const processData = await runProcess({
         step: 'all',
-        useProcessingState: true,
-        maxExecutionMs: 270000
+        executionProfile: 'refresh'
       });
       processResults.push(processData);
 

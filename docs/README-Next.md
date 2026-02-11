@@ -10,9 +10,30 @@ Ce document résume l'organisation Next.js spécifique au projet. Pour l'archite
 
 ## API Routes
 Les API routes sont définies dans `src/app/api/**/route.ts`.
-- Pipeline : `api/ingest`, `api/process`, `api/refresh`
+- Pipeline : `api/ingest`, `api/process`, `api/admin/refresh`
 - Admin : `api/admin/*` (stats, analytics, clusters, sources, rewrite, etc.)
 - Digest : `api/digest`
+
+## Execution Policy
+- Les paramètres runtime du pipeline (batch, delays, timeouts, max exec) sont centralisés dans `src/lib/pipeline/execution-policy.ts`.
+- Profils: `api`, `manual`, `refresh`, `gha`.
+- `api/process` accepte :
+  - `executionProfile` (body) ou `profile` (query)
+  - overrides optionnels bornés : `maxExecutionMs`, `processingLimit`, `llmDelayMs`
+  - override booléen : `useProcessingState`
+- `api/ingest` accepte `profile` (query).
+- `api/admin/refresh` force le profil `refresh`.
+- Les scripts `scripts/cron-process.ts` et `scripts/cron-ingest.ts` forcent le profil `gha`.
+- Les composants admin `AutoProcessor` et `ManualSteps` forcent le profil `manual`.
+
+## Pipeline Modulaire
+- Orchestrateur : `src/lib/pipeline/process.ts`
+- Contrat d'exécution : `src/lib/pipeline/types.ts`, `src/lib/pipeline/process-context.ts`
+- Étapes :
+  - `src/lib/pipeline/steps/embedding-step.ts`
+  - `src/lib/pipeline/steps/clustering-step.ts`
+  - `src/lib/pipeline/steps/scoring-step.ts`
+  - `src/lib/pipeline/steps/rewriting-step.ts`
 
 ## Auth Admin (Middleware)
 Le middleware protège `/admin` et `/api/admin` via Basic Auth :

@@ -36,6 +36,7 @@ Ce document consigne les choix techniques structurants du projet **App Curation 
 | ADR-028 | 2026-02-05 | Stratégie de Partage et Route `/story/[id]` | Validé |
 | ADR-029 | 2026-02-05 | Affinement du Consensus par Sources Uniques | Validé |
 | ADR-030 | 2026-02-11 | Source unique de vérité éditoriale + réconciliation des métriques | Validé |
+| ADR-031 | 2026-02-11 | Profils d'exécution centralisés + process modulaire | Validé |
 
 ---
 
@@ -503,7 +504,7 @@ Formaliser une **Machine à États** stricte pour les clusters, indépendante de
 ## ADR-027 : Externalisation des Crons vers GitHub Actions
 
 ### Contexte
-Le pipeline de traitement (`/api/process`) nécessite jusqu'à 12 minutes pour traiter un gros backlog (embeddings + clustering + scoring + rewriting). Les fonctions Vercel sont limitées à **300 secondes** (plan Hobby/Pro), ce qui causait des timeouts et des traitements incomplets.
+Le pipeline de traitement (`/api/process`) peut dépasser largement les limites des fonctions serverless Vercel (**300 secondes**). Les runs "backlog" (embeddings + clustering + scoring + rewriting) demandaient une fenêtre d'exécution plus longue et stable.
 
 ### Décision
 Externaliser les jobs de cron dans **GitHub Actions** plutôt que d'utiliser des crons externes (cron-job.org) ou Supabase pg_cron.
@@ -516,7 +517,7 @@ Externaliser les jobs de cron dans **GitHub Actions** plutôt que d'utiliser des
 
 2. **Workflows GitHub Actions** (`.github/workflows/`) :
    - `cron-ingest.yml` : Déclenché toutes les 2h, timeout 20min.
-   - `cron-process.yml` : Déclenché toutes les 15min, timeout 20min, `MAX_EXECUTION_MS=720000` (12min).
+   - `cron-process.yml` : Déclenché toutes les 15min, timeout 30min, `MAX_EXECUTION_MS=1080000` (18min de budget process).
    - Secrets injectés via `secrets.*`.
 
 3. **Lazy initialization des clients AI** (`src/lib/ai.ts`) :
@@ -529,7 +530,7 @@ Externaliser les jobs de cron dans **GitHub Actions** plutôt que d'utiliser des
 - **Vercel Cron** : Limité à 60s max, insuffisant pour le pipeline.
 
 ### Conséquences
--   **Positif** : Aucune limite de timeout (20min max GitHub), logs détaillés, exécution garantie, secrets sécurisés.
+-   **Positif** : Fenêtre d'exécution robuste (jusqu'à 30min workflow), logs détaillés, exécution garantie, secrets sécurisés.
 -   **Négatif** : Nécessite la configuration des secrets GitHub. Les logs sont dans l'onglet Actions (pas Vercel).
 
 ---
@@ -620,3 +621,55 @@ Des symptômes visibles apparaissaient:
 - **Positif** : Cohérence stricte entre UI éditoriale, dashboard et exécution pipeline.
 - **Positif** : Débogage simplifié grâce aux deltas de réconciliation affichés.
 - **Négatif** : Complexité logique déplacée côté TypeScript (classifier), demandant discipline de maintenance.
+
+---
+
+## ADR-031 : Profils d'exécution centralisés + process modulaire
+
+### Contexte
+`src/lib/pipeline/process.ts` concentrait historiquement plusieurs responsabilités (résolution des limites runtime, orchestration, logique d'étapes), avec des spécificités d'environnement dispersées.  
+Avec l'usage GitHub Actions (moins contraint que Vercel), il fallait pouvoir ajuster débit et délais par contexte (`api`, `manual`, `refresh`, `gha`) sans multiplier les branches conditionnelles.
+
+### Décision
+1. **Policy runtime centralisée**
+   - Créer `src/lib/pipeline/execution-policy.ts` comme source de vérité des profils ingest/process.
+   - Introduire des résolveurs déterministes:
+     - `resolveProcessExecutionPolicy(...)`
+     - `resolveIngestExecutionPolicy(...)`
+   - Ajouter clamp/bornes de sécurité pour toutes les surcharges runtime.
+
+2. **Process découplé en orchestrateur + étapes**
+   - `src/lib/pipeline/process.ts` devient orchestrateur (ordre, lock, budget temps, erreurs).
+   - Déplacer la logique métier dans des modules dédiés:
+     - `steps/embedding-step.ts`
+     - `steps/clustering-step.ts`
+     - `steps/scoring-step.ts`
+     - `steps/rewriting-step.ts`
+   - Formaliser les contrats via `src/lib/pipeline/types.ts` et `src/lib/pipeline/process-context.ts`.
+
+3. **Wiring explicite des profils**
+   - UI admin (`AutoProcessor`, `ManualSteps`) => profil `manual`.
+   - API `process`/`ingest` => profil configurable, default `api`.
+   - `api/admin/refresh` => profil `refresh`.
+   - Scripts cron (`cron-process.ts`, `cron-ingest.ts`) => profil `gha`.
+
+### Fichiers impactés
+- `src/lib/pipeline/execution-policy.ts`
+- `src/lib/pipeline/process.ts`
+- `src/lib/pipeline/ingest.ts`
+- `src/lib/pipeline/types.ts`
+- `src/lib/pipeline/process-context.ts`
+- `src/lib/pipeline/steps/*.ts`
+- `src/app/api/process/route.ts`
+- `src/app/api/ingest/route.ts`
+- `src/app/api/admin/refresh/route.ts`
+- `src/components/admin/AutoProcessor.tsx`
+- `src/components/admin/ManualSteps.tsx`
+- `scripts/cron-process.ts`
+- `scripts/cron-ingest.ts`
+
+### Conséquences
+- **Positif** : tuning cohérent par profil sans duplications ni constantes magiques dispersées.
+- **Positif** : maintenance simplifiée (`process.ts` lisible, étapes isolées).
+- **Positif** : meilleure prédictibilité des exécutions selon le contexte (API, admin, refresh, cron).
+- **Négatif** : plus de fichiers et de surfaces de config, nécessitant une discipline de documentation.

@@ -163,6 +163,7 @@ export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     step, config: getAIConfig(),
+                    executionProfile: 'manual',
                     freshOnly: freshOnly,
                     minSources: minSources,
                     publishThreshold: minScore
@@ -197,6 +198,7 @@ export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
                     body: JSON.stringify({
                         step,
                         config: getAIConfig(),
+                        executionProfile: 'manual',
                         freshOnly: freshOnly,
                         minSources: minSources,
                         publishThreshold: minScore
@@ -242,7 +244,9 @@ export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
         setError(null);
         setIngestResult(null);
         try {
-            const url = sourceName ? `/api/ingest?source=${encodeURIComponent(sourceName)}` : '/api/ingest';
+            const url = sourceName
+                ? `/api/ingest?profile=manual&source=${encodeURIComponent(sourceName)}`
+                : '/api/ingest?profile=manual';
             const res = await fetch(url);
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Erreur');
