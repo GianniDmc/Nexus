@@ -7,6 +7,7 @@ if (existsSync('.env.local')) {
 }
 
 import { runIngest } from '../src/lib/pipeline/ingest';
+import { sanitizeExecutionProfile } from '../src/lib/pipeline/execution-policy';
 
 const toNumber = (value?: string) => {
   if (!value) return undefined;
@@ -15,20 +16,19 @@ const toNumber = (value?: string) => {
 };
 
 async function main() {
-  const quietLogs = process.env.QUIET_LOGS === '1';
-  const log = quietLogs ? () => {} : console.log;
+  const executionProfile = sanitizeExecutionProfile(process.env.EXECUTION_PROFILE, 'manual');
 
   const result = await runIngest({
-    executionProfile: 'gha',
+    executionProfile,
     sourceFilter: process.env.SOURCE_FILTER || undefined,
     batchSize: toNumber(process.env.BATCH_SIZE),
     batchDelayMs: toNumber(process.env.BATCH_DELAY_MS),
     sourceConcurrency: toNumber(process.env.SOURCE_CONCURRENCY),
     sourceTimeoutMs: toNumber(process.env.SOURCE_TIMEOUT_MS),
     retrySourceTimeoutMs: toNumber(process.env.RETRY_SOURCE_TIMEOUT_MS),
-    log,
   });
 
+  console.log(JSON.stringify(result));
   console.log(`__CRON_JSON__${JSON.stringify(result)}`);
 
   if (!result.success) {
