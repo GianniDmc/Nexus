@@ -206,8 +206,12 @@ Des scripts Node.js (`scripts/`) servent aux audits et migrations ponctuelles :
 
 ## 9. Automatisation (GitHub Actions)
 Les jobs de cron sont externalisés dans `.github/workflows/` pour éviter les limites Vercel (timeout 300s) :
-- **cron-ingest.yml** : Toutes les 2h, `npm run cron:ingest`.
-- **cron-process.yml** : Toutes les 15min, `npm run cron:process` (`MAX_EXECUTION_MS=1080000`, budget process 18min, timeout workflow 30min).
+- **cron-process.yml** : Orchestrateur principal.
+  - `17,47 * * * *` : tick `process_only`.
+  - `12 */2 * * *` : tick `ingest_then_process`.
+  - Skip du process sur le tick ingest si `articlesIngested = 0`.
+  - `MAX_EXECUTION_MS=1080000`, timeout workflow 30min.
+- **cron-ingest.yml** : lancement manuel uniquement (`workflow_dispatch`) pour debug.
 
 Les scripts utilisent `dotenv` pour charger `.env.local` en développement local, mais reçoivent les secrets via `secrets.*` en CI.
 

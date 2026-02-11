@@ -516,8 +516,12 @@ Externaliser les jobs de cron dans **GitHub Actions** plutôt que d'utiliser des
    - Sortie JSON structurée pour parsing CI.
 
 2. **Workflows GitHub Actions** (`.github/workflows/`) :
-   - `cron-ingest.yml` : Déclenché toutes les 2h, timeout 20min.
-   - `cron-process.yml` : Déclenché toutes les 15min, timeout 30min, `MAX_EXECUTION_MS=1080000` (18min de budget process).
+   - `cron-process.yml` : orchestrateur unique.
+     - `17,47 * * * *` : process only.
+     - `12 */2 * * *` : ingest puis process.
+     - skip process si `articlesIngested = 0` sur le tick ingest.
+     - timeout 30min, `MAX_EXECUTION_MS=1080000` (18min de budget process).
+   - `cron-ingest.yml` : exécution manuelle uniquement (debug).
    - Secrets injectés via `secrets.*`.
 
 3. **Lazy initialization des clients AI** (`src/lib/ai.ts`) :

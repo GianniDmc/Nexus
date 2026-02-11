@@ -15,6 +15,9 @@ const toNumber = (value?: string) => {
 };
 
 async function main() {
+  const quietLogs = process.env.QUIET_LOGS === '1';
+  const log = quietLogs ? (_message: string) => {} : console.log;
+
   const result = await runIngest({
     executionProfile: 'gha',
     sourceFilter: process.env.SOURCE_FILTER || undefined,
@@ -23,6 +26,7 @@ async function main() {
     sourceConcurrency: toNumber(process.env.SOURCE_CONCURRENCY),
     sourceTimeoutMs: toNumber(process.env.SOURCE_TIMEOUT_MS),
     retrySourceTimeoutMs: toNumber(process.env.RETRY_SOURCE_TIMEOUT_MS),
+    log,
   });
 
   console.log(JSON.stringify(result));

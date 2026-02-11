@@ -1,8 +1,6 @@
-name: Cron Ingest
+name: Manual Ingest
 
 on:
-  schedule:
-    - cron: "12 */2 * * *"
   workflow_dispatch:
 
 concurrency:
