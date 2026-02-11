@@ -27,7 +27,7 @@ Ce document recense les améliorations techniques et fonctionnelles prévues pou
 - [x] **Gestion Sources Admin** : Interface CRUD complète pour gérer les flux RSS, activation/désactivation et stats temps réel.
 - [x] **Ingestion Robuste** : Support des sites protégés (403/401) via simulation navigateur et filtrage automatique des binaires (PDF/Images).
 - [x] **Restauration CMS & Inspection** : Vue "Raw Articles" complète avec filtres (Source, Cluster), inspection JSON et navigation inter-clusters.
-- [x] **CI/CD GitHub Actions** : Externalisation des crons hors Vercel (workflow pipeline orchestré + garde-fous de skip process: après ingest vide et en process-only via pré-check backlog). Scripts standalone avec chargement `dotenv`.
+- [x] **CI/CD GitHub Actions** : Externalisation des crons hors Vercel (workflow pipeline orchestré + garde-fous de skip process: après ingest vide et en process-only via pré-check backlog, avec drain par étapes après ingest). Scripts standalone avec chargement `dotenv`.
 - [x] **Alignement Editorial/Process/Stats** : classifier éditorial unifié (`editorial-state`), tabs exclusives (maturité vs sources), maturité basée sur le premier article, et dashboard avec décomposition + deltas de réconciliation.
 - [x] **Execution Policy centralisée** : profils runtime `api/manual/refresh/gha` pour ingest + process, avec bornes de sécurité sur overrides.
 - [x] **Pipeline Process modulaire** : refactor `process.ts` en orchestrateur + étapes dédiées (`embedding`, `clustering`, `scoring`, `rewriting`) avec contexte/types partagés.

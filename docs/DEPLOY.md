@@ -84,6 +84,7 @@ L'approche la plus robuste et gratuite. Les workflows sont déjà configurés da
      - `12 */2 * * *` : ingest puis process
      - Pré-check backlog sur `process_only` pour skip les runs vides
      - Skip process automatique si l'ingestion n'a ajouté aucun article
+     - Drain post-ingest par étapes (`embedding` -> `clustering` -> `scoring` -> `rewriting`) avec cycles bornés
      - Budget process : `MAX_EXECUTION_MS=1080000` (18 min)
      - Timeout workflow : 30 min
    - `cron-ingest.yml` : workflow manuel (`Run workflow`) pour debug ingestion.
