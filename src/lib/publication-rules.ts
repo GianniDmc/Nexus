@@ -42,7 +42,7 @@ export const PUBLICATION_RULES = {
      * before the cluster is eligible for automated rewriting/publishing.
      * Prevents premature publishing of developing stories.
      */
-    CLUSTER_MATURITY_HOURS: 6,
+    CLUSTER_MATURITY_HOURS: 3,
 } as const;
 
 // Helper to get freshness cutoff date (for Rewriting)

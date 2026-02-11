@@ -489,8 +489,8 @@ Le système binaire "Publié / Non Publié" était insuffisant pour trier le flu
 Formaliser une **Machine à États** stricte pour les clusters, indépendante des articles :
 1.  **Pending** : Nouveau né, en attente de scoring.
 2.  **Low Score** : Rejeté par l'IA (< 8/10).
-3.  **Incubating** : Bon score (>= 8) mais **trop tôt** (1 seule source OU < 6h). On attend.
-4.  **Eligible** : Bon score + **Mature** (> 6h ET >= 2 sources). Prêt pour rédaction.
+3.  **Incubating** : Bon score (>= 8) mais **trop tôt** (1 seule source OU < 3h). On attend.
+4.  **Eligible** : Bon score + **Mature** (> 3h ET >= 2 sources). Prêt pour rédaction.
 5.  **Ready** : Synthèse générée par l'IA. En attente de validation humaine.
 6.  **Published** : Validé et en ligne.
 7.  **Archived** : Était bon mais a expiré (> 48h) avant de devenir Eligible.
