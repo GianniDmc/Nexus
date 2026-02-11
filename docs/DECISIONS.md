@@ -519,6 +519,7 @@ Externaliser les jobs de cron dans **GitHub Actions** plutôt que d'utiliser des
    - `cron-process.yml` : orchestrateur unique.
      - `17,47 * * * *` : process only.
      - `12 */2 * * *` : ingest puis process.
+     - pre-check backlog sur `process_only` via `cron:should-process`.
      - skip process si `articlesIngested = 0` sur le tick ingest.
      - timeout 30min, `MAX_EXECUTION_MS=1080000` (18min de budget process).
    - `cron-ingest.yml` : exécution manuelle uniquement (debug).

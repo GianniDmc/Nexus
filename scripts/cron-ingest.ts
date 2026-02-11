@@ -16,7 +16,7 @@ const toNumber = (value?: string) => {
 
 async function main() {
   const quietLogs = process.env.QUIET_LOGS === '1';
-  const log = quietLogs ? (_message: string) => {} : console.log;
+  const log = quietLogs ? () => {} : console.log;
 
   const result = await runIngest({
     executionProfile: 'gha',

@@ -91,11 +91,29 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
+      - name: Precheck Backlog (process_only)
+        id: precheck
+        if: steps.mode.outputs.mode == 'process_only'
+        run: |
+          set -euo pipefail
+          output="$(npm run -s cron:should-process)"
+          echo "${output}"
+          should_process="$(printf '%s' "${output}" | node -e 'const fs = require("fs"); const raw = fs.readFileSync(0, "utf8").trim(); const data = JSON.parse(raw); process.stdout.write(data.shouldProcess ? "true" : "false");')"
+          reason="$(printf '%s' "${output}" | node -e 'const fs = require("fs"); const raw = fs.readFileSync(0, "utf8").trim(); const data = JSON.parse(raw); const reasons = Array.isArray(data.reasons) ? data.reasons.join(",") : ""; process.stdout.write(reasons || "no_backlog");')"
+          echo "should_process=${should_process}" >> "$GITHUB_OUTPUT"
+          echo "reason=${reason}" >> "$GITHUB_OUTPUT"
+          echo "Precheck: should_process=${should_process} (${reason})"
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
       - name: Decide Process Run
         id: decide
         env:
           MODE: ${{ steps.mode.outputs.mode }}
           INGESTED: ${{ steps.ingest.outputs.articles_ingested }}
+          PRECHECK_SHOULD: ${{ steps.precheck.outputs.should_process }}
+          PRECHECK_REASON: ${{ steps.precheck.outputs.reason }}
         run: |
           set -euo pipefail
           should_process="true"
@@ -104,6 +122,16 @@ jobs:
           if [ "${MODE}" = "ingest_only" ]; then
             should_process="false"
             reason="ingest-only mode"
+          elif [ "${MODE}" = "process_only" ]; then
+            precheck_should="${PRECHECK_SHOULD:-true}"
+            precheck_reason="${PRECHECK_REASON:-precheck_missing}"
+            if [ "${precheck_should}" = "true" ]; then
+              should_process="true"
+              reason="precheck backlog: ${precheck_reason}"
+            else
+              should_process="false"
+              reason="precheck no backlog: ${precheck_reason}"
+            fi
           elif [ "${MODE}" = "ingest_then_process" ]; then
             ingested="${INGESTED:-0}"
             if ! [[ "${ingested}" =~ ^[0-9]+$ ]]; then
