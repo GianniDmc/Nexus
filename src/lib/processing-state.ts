@@ -1,5 +1,5 @@
 // Server-side processing state management using database for persistence
-import { createClient } from '@supabase/supabase-js';
+import { getServiceSupabase } from './supabase-admin';
 
 export interface ProgressInfo {
     current: number;
@@ -12,19 +12,11 @@ interface ProcessingState {
     step: string | null;
     startedAt: string | null;
     shouldStop: boolean;
+    runId?: string | null;
     progress?: ProgressInfo;
 }
 
-// ...
-
-// ... (getProcessingState implementation same as before) ... to keep type valid
-// I will just append updateProgress at the end and update interface definition
-
-
-const getSupabase = () => createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+const getSupabase = () => getServiceSupabase();
 
 // Use a simple key-value approach with upsert
 const STATE_KEY = 'processing_state';
@@ -43,7 +35,7 @@ export async function getProcessingState(): Promise<ProcessingState> {
     return { isRunning: false, step: null, startedAt: null, shouldStop: false };
 }
 
-export async function startProcessing(step: string): Promise<boolean> {
+export async function startProcessing(step: string, runId?: string): Promise<boolean> {
     const supabase = getSupabase();
 
     // Check current state - PREVENT CONCURRENT RUNS
@@ -55,10 +47,10 @@ export async function startProcessing(step: string): Promise<boolean> {
         const now = new Date();
         const minutesRunning = (now.getTime() - startDate.getTime()) / (1000 * 60);
 
-        // If it's the SAME step, we allow restart (it might be a retry loop)
-        // But if it's different step, block it.
-        // Auto-recover after 15 minutes of "stuck" state
-        if (current.step !== step && minutesRunning < 15) {
+        // Auto-recover after 15 minutes of "stuck" state.
+        // Before that, block concurrent starts unless it is the exact same run id.
+        const isSameRun = !!(runId && current.runId && runId === current.runId);
+        if (!isSameRun && minutesRunning < 15) {
             console.log(`[STATE] startProcessing BLOCKED: '${current.step}' is already running`);
             return false;
         }
@@ -74,7 +66,8 @@ export async function startProcessing(step: string): Promise<boolean> {
         isRunning: true,
         step,
         startedAt: new Date().toISOString(),
-        shouldStop: false
+        shouldStop: false,
+        runId: runId || crypto.randomUUID()
     };
 
     await supabase
@@ -104,13 +97,22 @@ export async function shouldStopProcessing(): Promise<boolean> {
     return state.shouldStop;
 }
 
-export async function finishProcessing(): Promise<void> {
+export async function finishProcessing(runId?: string): Promise<void> {
     const supabase = getSupabase();
+    const current = await getProcessingState();
+
+    // If a run id is provided, only the lock owner can clear the state.
+    if (runId && current.runId && current.runId !== runId) {
+        console.log(`[STATE] finishProcessing SKIPPED: lock owned by another run (${current.runId})`);
+        return;
+    }
+
     const state: ProcessingState = {
         isRunning: false,
         step: null,
         startedAt: null,
-        shouldStop: false
+        shouldStop: false,
+        runId: null
     };
 
     await supabase

@@ -51,12 +51,28 @@ Définies dans `src/lib/publication-rules.ts` et réutilisées par l'admin + l'A
 Les valeurs peuvent être **surchargées** par l'admin via query/body (`freshOnly`, `minSources`, `publishThreshold`, `ignoreMaturity`).
 
 ### Cycle de Vie Éditorial (State Machine)
-Les clusters évoluent selon une machine à états stricte (voir `docs/STATE_GRAPH.md`) :
-1. **Pending** : En attente de scoring.
-2. **Incubating** : Score OK mais < 2 sources ou trop récent (< 6h).
-3. **Eligible** : Score OK + Mature + Multi-sources. Cible pour l'IA.
-4. **Ready** : Résumé généré, en attente de validation humaine.
-5. **Published** : En ligne.
+Les clusters évoluent selon une machine à états stricte (voir `docs/STATE_GRAPH.md`) et centralisée dans `src/lib/editorial-state.ts`.
+
+États de référence:
+1. **pending_scoring** : score non calculé.
+2. **low_score** : score < seuil.
+3. **incubating_maturity** : score OK mais maturité non atteinte.
+4. **incubating_sources** : score OK mais sources uniques insuffisantes.
+5. **incubating_maturity_sources** : double blocage (maturité + sources).
+6. **eligible_rewriting** : cluster publiable automatiquement.
+7. **archived** : cluster hors fenêtre de fraîcheur.
+8. **published** : publié.
+9. **anomaly_empty / anomaly_summary_unpublished** : incohérences à surveiller.
+
+Règle de maturité:
+- L'ancre de maturité est la date du **premier article** (`oldest published_at`), avec fallback `clusters.created_at` si les dates article sont absentes.
+
+Couverture des onglets éditoriaux:
+- **File d'attente** = `eligible_rewriting`.
+- **Attente maturité** = `incubating_maturity` uniquement.
+- **Attente sources** = `incubating_sources` + `incubating_maturity_sources`.
+- **Archives** = `archived`.
+- **Anomalies** = `anomaly_*`.
 
 ## 4. Gestion des Processus
 
@@ -77,12 +93,17 @@ La console `/admin` centralise les opérations métiers.
 
 - **Pilotage auto** : AutoProcessor (processing loop + rate limit management).
 - **Étapes manuelles** : déclenchement par étape, filtres (fraîcheur, sources min, score) et ingestion par source.
-- **Éditorial** : gestion des clusters (publication, rejet, suppression, rewrite manuel).
+- **Éditorial** : gestion des clusters par état métier (file d'attente, maturité, sources, scoring, archives, anomalies).
 - **Clusters** : listing multi-sources + test de similarité entre 2 articles.
 - **Analytics** : Pulse 72h, Trend 30j, top sources, distribution des scores.
 - **IA Settings** : clés temporaires (OpenAI/Anthropic/Gemini) + provider préféré.
 
-## 6. Front Public
+### Continuité des métriques (Dashboard)
+Le dashboard `/admin` expose désormais les contrôles de cohérence suivants:
+- **Scoring (clusters)**: `scored = relevant + rejected` (delta affiché si non nul).
+- **Pertinents non publiés**: décomposés en `actionnable + maturité + sources + fraîcheur + synthèse non publiée + anomalies` (delta affiché si non nul).
+- **Diffusion**: compteur principal sur les **sujets pertinents publiés**, avec sous-total "total publiés" pour distinguer les publications historiques hors seuil courant.
+
 ## 6. Front Public
 - **NewsFeed** :
     - **Navigation** : Sidebar simplifiée (Temps : Aujourd'hui/Hier/Semaine/Archives) + Pills catégories.
@@ -133,4 +154,3 @@ Depuis ADR-022, la gestion est **100% programmatique** via Supabase CLI.
 Une instance Docker complète est disponible pour le dév risqué :
 - `npm run db:start` / `npm run db:stop`
 - Bascule via `.env.local`.
-

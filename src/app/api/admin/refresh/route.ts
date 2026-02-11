@@ -1,26 +1,38 @@
 import { NextResponse } from 'next/server';
+import { runIngest } from '@/lib/pipeline/ingest';
+import { runProcess } from '@/lib/pipeline/process';
+import { parseBoundedInt } from '@/lib/http';
 
 export const maxDuration = 300; 
 
-export async function GET(req: Request) {
-  const protocol = new URL(req.url).protocol;
-  const host = new URL(req.url).host;
-  const baseUrl = `${protocol}//${host}`;
+async function runRefresh(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const sourceFilter = searchParams.get('source') || undefined;
+  const maxCycles = parseBoundedInt(searchParams.get('cycles'), 3, 1, 10);
 
   try {
-    const ingestRes = await fetch(`${baseUrl}/api/ingest`);
-    const ingestData = await ingestRes.json();
+    const ingestData = await runIngest({ sourceFilter });
 
     const processResults = [];
-    for (let i = 0; i < 3; i++) {
-      const processRes = await fetch(`${baseUrl}/api/process`);
-      const processData = await processRes.json();
+    for (let i = 0; i < maxCycles; i++) {
+      const processData = await runProcess({
+        step: 'all',
+        useProcessingState: true,
+        maxExecutionMs: 270000
+      });
       processResults.push(processData);
-      
-      if (
-        processData.processed?.embeddings === 0 && 
-        processData.processed?.rewritten === 0
-      ) {
+
+      if (!processData.success || processData.processed?.stopped) {
+        break;
+      }
+
+      const totalProcessed =
+        (processData.processed?.embeddings || 0) +
+        (processData.processed?.clustered || 0) +
+        (processData.processed?.scored || 0) +
+        (processData.processed?.rewritten || 0);
+
+      if (totalProcessed === 0) {
         break;
       }
     }
@@ -35,4 +47,12 @@ export async function GET(req: Request) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
+}
+
+export async function GET(req: Request) {
+  return runRefresh(req);
+}
+
+export async function POST(req: Request) {
+  return runRefresh(req);
 }

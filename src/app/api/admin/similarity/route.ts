@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { getServiceSupabase } from '@/lib/supabase-admin';
 
 // Cosine similarity between two vectors
 function cosineSimilarity(a: number[], b: number[]): number {
@@ -20,10 +20,7 @@ function cosineSimilarity(a: number[], b: number[]): number {
 }
 
 export async function POST(req: NextRequest) {
-    const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
+    const supabase = getServiceSupabase();
 
     try {
         const { articleId1, articleId2 } = await req.json();
@@ -99,10 +96,7 @@ export async function POST(req: NextRequest) {
 
 // GET: List articles for dropdown (with optional search)
 export async function GET(req: NextRequest) {
-    const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
+    const supabase = getServiceSupabase();
 
     const { searchParams } = new URL(req.url);
     const search = searchParams.get('search');

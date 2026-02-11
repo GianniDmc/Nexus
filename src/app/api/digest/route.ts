@@ -1,12 +1,9 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { getServiceSupabase } from '@/lib/supabase-admin';
 import { generateDailyDigest } from '@/lib/ai';
 
 export async function GET() {
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  const supabase = getServiceSupabase();
 
   try {
     // 1. Récupérer les articles avec résumé des dernières 24h

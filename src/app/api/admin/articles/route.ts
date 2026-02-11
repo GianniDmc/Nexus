@@ -1,275 +1,261 @@
-
-import { createClient } from '@supabase/supabase-js';
+import { getServiceSupabase } from '@/lib/supabase-admin';
 import { NextResponse } from 'next/server';
 import { PUBLICATION_RULES, getFreshnessCutoff } from '@/lib/publication-rules';
+import { parseBoundedInt } from '@/lib/http';
+import { classifyClusterEditorialState, getFilterStates } from '@/lib/editorial-state';
 
 export const dynamic = 'force-dynamic';
 
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+const supabase = getServiceSupabase();
+
+type DbSummaryRow = {
+  title: string | null;
+  content_tldr: string | null;
+  content_full: string | null;
+} | null;
+
+type DbArticleRow = {
+  source_name: string | null;
+  published_at: string | null;
+};
+
+type DbClusterRow = {
+  id: string;
+  label: string;
+  created_at: string;
+  final_score: number | null;
+  is_published: boolean;
+  image_url: string | null;
+  published_on: string | null;
+  articles: DbArticleRow[] | null;
+  summary: DbSummaryRow | DbSummaryRow[] | null;
+};
+
+type AdminClusterRow = {
+  id: string;
+  title: string;
+  created_at: string;
+  final_score: number | null;
+  summary_short: string | null;
+  cluster_size: number;
+  unique_sources: number;
+  is_published: boolean;
+  image_url: string | null;
+  published_on: string | null;
+  editorial_state: string;
+  block_reason: string;
+};
+
+function getSummaryRecord(summary: DbSummaryRow | DbSummaryRow[] | null): DbSummaryRow {
+  if (Array.isArray(summary)) {
+    return summary[0] || null;
+  }
+  return summary || null;
+}
+
+function sortClusters(
+  clusters: AdminClusterRow[],
+  sortField: string,
+  order: 'asc' | 'desc'
+): AdminClusterRow[] {
+  const direction = order === 'asc' ? 1 : -1;
+  const toTs = (value: string | null | undefined) => {
+    if (!value) return 0;
+    const ts = new Date(value).getTime();
+    return Number.isFinite(ts) ? ts : 0;
+  };
+
+  return clusters.sort((a, b) => {
+    let cmp = 0;
+
+    if (sortField === 'cluster_size') {
+      cmp = a.cluster_size - b.cluster_size;
+    } else if (sortField === 'final_score') {
+      cmp = (a.final_score ?? -Infinity) - (b.final_score ?? -Infinity);
+    } else if (sortField === 'published_on') {
+      cmp = toTs(a.published_on) - toTs(b.published_on);
+    } else if (sortField === 'title' || sortField === 'label') {
+      cmp = a.title.localeCompare(b.title, 'fr', { sensitivity: 'base' });
+    } else {
+      cmp = toTs(a.created_at) - toTs(b.created_at);
+    }
+
+    return cmp * direction;
+  });
+}
 
 export async function GET(request: Request) {
-    try {
-        const { searchParams } = new URL(request.url);
-        const page = parseInt(searchParams.get('page') || '1');
-        const limit = parseInt(searchParams.get('limit') || '50');
-        const status = searchParams.get('status') || 'all';
-        const search = searchParams.get('search') || '';
+  try {
+    const { searchParams } = new URL(request.url);
+    const page = parseBoundedInt(searchParams.get('page'), 1, 1, 100000);
+    const limit = parseBoundedInt(searchParams.get('limit'), 50, 1, 200);
+    const status = searchParams.get('status') || 'all';
+    const search = searchParams.get('search') || '';
+    const sortBy = searchParams.get('sort') || 'created_at';
+    const sortOrder = searchParams.get('order') === 'asc' ? 'asc' : 'desc';
+    const freshOnly = searchParams.has('freshOnly')
+      ? searchParams.get('freshOnly') !== 'false'
+      : PUBLICATION_RULES.FRESH_ONLY_DEFAULT;
+    const minSources = searchParams.has('minSources')
+      ? parseBoundedInt(searchParams.get('minSources'), PUBLICATION_RULES.MIN_SOURCES, 1, 20)
+      : PUBLICATION_RULES.MIN_SOURCES;
+    const minScore = searchParams.has('minScore')
+      ? parseFloat(searchParams.get('minScore') || String(PUBLICATION_RULES.PUBLISH_THRESHOLD))
+      : PUBLICATION_RULES.PUBLISH_THRESHOLD;
+    const effectiveMinScore = Number.isFinite(minScore) ? minScore : PUBLICATION_RULES.PUBLISH_THRESHOLD;
 
-        // Freshness Logic (Reverse Lookup)
-        let freshClusterIds: string[] | null = null;
-        const needsFreshness = ['eligible', 'incubating', 'archived'].includes(status);
+    // Full scan with pagination to avoid Supabase 1000 rows cap.
+    const pageSize = 1000;
+    const allRows: DbClusterRow[] = [];
+    let offset = 0;
+    let hasMore = true;
 
-        if (needsFreshness) {
-            const cutoff = getFreshnessCutoff();
+    while (hasMore) {
+      let query = supabase
+        .from('clusters')
+        .select(
+          `
+            id,
+            label,
+            created_at,
+            final_score,
+            is_published,
+            image_url,
+            published_on,
+            articles:articles!articles_cluster_id_fkey(source_name, published_at),
+            summary:summaries!summaries_cluster_id_fkey(title, content_tldr, content_full)
+          `,
+          { count: 'estimated' }
+        )
+        .order('created_at', { ascending: false });
 
-            // PAGINATION LOOP to bypass Supabase 1000 rows limit
-            let allFreshClusterIds: string[] = [];
-            let offset = 0;
-            const pageSize = 1000;
-            let hasMore = true;
+      if (search) {
+        query = query.ilike('label', `%${search}%`);
+      }
 
-            while (hasMore) {
-                const { data: batch } = await supabase
-                    .from('articles')
-                    .select('cluster_id')
-                    .gte('published_at', cutoff)
-                    .range(offset, offset + pageSize - 1);
+      const { data: batch, error } = await query.range(offset, offset + pageSize - 1);
+      if (error) throw error;
 
-                if (batch && batch.length > 0) {
-                    const ids = batch.map(a => a.cluster_id).filter(Boolean) as string[];
-                    allFreshClusterIds.push(...ids);
-
-                    if (batch.length < pageSize) {
-                        hasMore = false;
-                    } else {
-                        offset += pageSize;
-                    }
-                } else {
-                    hasMore = false;
-                }
-            }
-
-            // Deduplicate and assign to the outer variable
-            freshClusterIds = Array.from(new Set(allFreshClusterIds));
-        }
-
-        // Base Query
-        let query = supabase
-            .from('clusters')
-            .select(`
-                *,
-                articles:articles!articles_cluster_id_fkey(source_name),
-                summary:summaries!summaries_cluster_id_fkey(*)
-            `, { count: 'estimated' });
-
-        // MUTUALLY EXCLUSIVE FILTERS
-        // Helper date for safety bound (scan only last 30 days to avoid fetching full history)
-        const safeHistoryLimit = new Date();
-        safeHistoryLimit.setDate(safeHistoryLimit.getDate() - 35); // 30 days + margin
-
-        switch (status) {
-            case 'published':
-                query = query.eq('is_published', true);
-                break;
-
-            case 'ready':
-                // 🔵 Prêts à Publier: Valid Score + Summary + Not Published
-                query = query
-                    .eq('is_published', false)
-                    .gte('final_score', PUBLICATION_RULES.PUBLISH_THRESHOLD)
-                    .not('summary', 'is', null);
-                break;
-
-            case 'eligible':
-                // 🟣 File d'Attente: Fresh + Valid Score + No Summary + Enough Sources
-                // Optimization: Don't use .in(huge_array) to avoid URL overflow. 
-                // Fetch candidate clusters from last month, then filter by freshness in JS.
-                query = query
-                    .eq('is_published', false)
-                    .gte('final_score', PUBLICATION_RULES.PUBLISH_THRESHOLD)
-                    .gte('created_at', safeHistoryLimit.toISOString())
-                    .is('summary', null);
-                break;
-
-            case 'incubating':
-                // 🟡 Incubation: Fresh + Valid Score + No Summary + (Sources checked in post-filter)
-                query = query
-                    .eq('is_published', false)
-                    .gte('final_score', PUBLICATION_RULES.PUBLISH_THRESHOLD)
-                    .gte('created_at', safeHistoryLimit.toISOString())
-                    .is('summary', null);
-                break;
-
-            case 'pending':
-                // ⏳ En Attente (IA): Not scored yet
-                query = query
-                    .eq('is_published', false)
-                    .is('final_score', null);
-                break;
-
-            case 'archived':
-                // 🟤 Archives: Stale + Valid Score + No Summary
-                const cutoff = getFreshnessCutoff();
-                query = query
-                    .eq('is_published', false)
-                    .gte('final_score', PUBLICATION_RULES.PUBLISH_THRESHOLD)
-                    .is('summary', null)
-                    .lt('created_at', cutoff); // Strictly older than cutoff
-                break;
-
-            case 'low_score':
-                // ⚪ Poubelle: Low Score
-                query = query
-                    .eq('is_published', false)
-                    .lt('final_score', PUBLICATION_RULES.PUBLISH_THRESHOLD);
-                break;
-
-            case 'all':
-            default:
-                // No specific filter
-                break;
-        }
-
-        if (search) {
-            query = query.ilike('label', `%${search}%`);
-        }
-
-        const sort = searchParams.get('sort') || 'created_at';
-        const order = searchParams.get('order') || 'desc';
-        const sortField = sort;
-
-        const isManualSort = sortField === 'cluster_size';
-        // Pagination Strategy: In-Memory if we apply JS post-filters
-        // New Workflow: 'eligible' and 'incubating' need JS checks for source counts
-        const isPostFiltered = ['eligible', 'incubating'].includes(status);
-        const shouldPaginateInMemory = isManualSort || isPostFiltered;
-
-        // Apply Native Sort/Pagination if NOT using In-Memory logic
-        if (!shouldPaginateInMemory) {
-            query = query.order(sortField, { ascending: order === 'asc' });
-
-            const from = (page - 1) * limit;
-            const to = from + limit - 1;
-            query = query.range(from, to);
+      if (batch && batch.length > 0) {
+        allRows.push(...(batch as DbClusterRow[]));
+        if (batch.length < pageSize) {
+          hasMore = false;
         } else {
-            // Even for In-Memory, default DB sort helps (e.g. by created_at)
-            // unless isManualSort which overrides it later
-            if (!isManualSort) {
-                query = query.order(sortField, { ascending: order === 'asc' });
-            }
+          offset += pageSize;
         }
-
-        const { data, error, count: dbCount } = await query;
-
-        if (error) throw error;
-
-        // Transform & Post-Filter
-        let clusters = data?.map((c: any) => ({
-            ...c,
-            title: c.label,
-            // Calculate sizes
-            cluster_size: c.articles?.length || 0, // Total articles
-            unique_sources: new Set(c.articles?.map((a: any) => a.source_name)).size, // Unique sources
-
-            summary_short: c.summary ? JSON.stringify({
-                title: c.summary.title,
-                tldr: c.summary.content_tldr,
-                full: c.summary.content_full
-            }) : null,
-            published_on: c.published_on
-        })) || [];
-
-        // STRICT JS FILTERS (Pipeline Logic) for Source Counts AND Freshness
-        if (status === 'eligible') {
-            const freshSet = new Set(freshClusterIds || []);
-            // RULES: Eligible = Enough UNIQUE sources AND Fresh
-            clusters = clusters.filter((c: any) =>
-                c.unique_sources >= PUBLICATION_RULES.MIN_SOURCES &&
-                freshSet.has(c.id)
-            );
-        } else if (status === 'incubating') {
-            const freshSet = new Set(freshClusterIds || []);
-            // RULES: Incubating = NOT enough UNIQUE sources (but valid score) AND Fresh
-            clusters = clusters.filter((c: any) =>
-                c.unique_sources < PUBLICATION_RULES.MIN_SOURCES &&
-                freshSet.has(c.id)
-            );
-        }
-
-        // Calculate Total & Slice (if In-Memory)
-        const total = shouldPaginateInMemory ? clusters.length : (dbCount || 0);
-
-        if (shouldPaginateInMemory) {
-            if (isManualSort) {
-                clusters.sort((a, b) => {
-                    return order === 'asc'
-                        ? a.cluster_size - b.cluster_size
-                        : b.cluster_size - a.cluster_size;
-                });
-            }
-            // Paginate
-            const from = (page - 1) * limit;
-            clusters = clusters.slice(from, from + limit);
-        }
-
-        return NextResponse.json({
-            clusters,
-            total,
-            page,
-            totalPages: total ? Math.ceil(total / limit) : 0
-        });
-
-    } catch (error: any) {
-        console.error("[API-ADMIN] Error:", error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+      } else {
+        hasMore = false;
+      }
     }
+
+    const allowedStates = getFilterStates(status);
+    const classificationConfig = {
+      minScore: effectiveMinScore,
+      minSources,
+      freshOnly,
+      freshnessCutoff: getFreshnessCutoff(),
+      maturityHours: PUBLICATION_RULES.CLUSTER_MATURITY_HOURS,
+      ignoreMaturity: false,
+    };
+
+    let clusters: AdminClusterRow[] = allRows.map((cluster) => {
+      const summaryRecord = getSummaryRecord(cluster.summary);
+      const articles = Array.isArray(cluster.articles) ? cluster.articles : [];
+      const classification = classifyClusterEditorialState(
+        {
+          created_at: cluster.created_at,
+          final_score: cluster.final_score,
+          is_published: cluster.is_published,
+          has_summary: !!summaryRecord,
+          articles: articles.map((article) => ({
+            source_name: article.source_name,
+            published_at: article.published_at,
+          })),
+        },
+        classificationConfig
+      );
+
+      return {
+        id: cluster.id,
+        title: cluster.label,
+        created_at: cluster.created_at,
+        final_score: cluster.final_score,
+        summary_short: summaryRecord
+          ? JSON.stringify({
+              title: summaryRecord.title,
+              tldr: summaryRecord.content_tldr,
+              full: summaryRecord.content_full,
+            })
+          : null,
+        cluster_size: classification.metrics.article_count,
+        unique_sources: classification.metrics.unique_sources,
+        is_published: cluster.is_published,
+        image_url: cluster.image_url,
+        published_on: cluster.published_on,
+        editorial_state: classification.state,
+        block_reason: classification.metrics.block_reason,
+      };
+    });
+
+    if (allowedStates) {
+      const stateSet = new Set<string>(allowedStates);
+      clusters = clusters.filter((cluster) => stateSet.has(cluster.editorial_state));
+    }
+
+    sortClusters(clusters, sortBy, sortOrder);
+
+    const total = clusters.length;
+    const from = (page - 1) * limit;
+    const pagedClusters = clusters.slice(from, from + limit);
+
+    return NextResponse.json({
+      clusters: pagedClusters,
+      total,
+      page,
+      totalPages: total ? Math.ceil(total / limit) : 0,
+    });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    console.error('[API-ADMIN] Error:', error);
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }
 
 export async function PATCH(request: Request) {
-    try {
-        const { id, ids, updates } = await request.json();
+  try {
+    const { id, ids, updates } = await request.json();
 
-        // Target CLUSTERS
-        const startQuery = supabase.from('clusters').update(updates);
+    const startQuery = supabase.from('clusters').update(updates);
 
-        let query;
-        if (ids && Array.isArray(ids) && ids.length > 0) {
-            query = startQuery.in('id', ids);
-        } else if (id) {
-            query = startQuery.eq('id', id);
-        } else {
-            throw new Error('ID or IDs required');
-        }
-
-        const { data, error } = await query.select();
-
-        if (error) throw error;
-
-        return NextResponse.json({ success: true, clusters: data });
-    } catch (error) {
-        return NextResponse.json({ error: 'Failed to update cluster(s)' }, { status: 500 });
+    let query;
+    if (ids && Array.isArray(ids) && ids.length > 0) {
+      query = startQuery.in('id', ids);
+    } else if (id) {
+      query = startQuery.eq('id', id);
+    } else {
+      throw new Error('ID or IDs required');
     }
+
+    const { data, error } = await query.select();
+    if (error) throw error;
+
+    return NextResponse.json({ success: true, clusters: data });
+  } catch {
+    return NextResponse.json({ error: 'Failed to update cluster(s)' }, { status: 500 });
+  }
 }
 
 export async function DELETE(request: Request) {
-    try {
-        const { searchParams } = new URL(request.url);
-        const id = searchParams.get('id');
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+    if (!id) throw new Error('ID required');
 
-        if (!id) throw new Error('ID required');
+    const { error } = await supabase.from('clusters').delete().eq('id', id);
+    if (error) throw error;
 
-        const { error } = await supabase
-            .from('clusters') // Delete Cluster
-            .delete()
-            .eq('id', id);
-
-        if (error) throw error;
-
-        return NextResponse.json({ success: true });
-    } catch (error) {
-        return NextResponse.json({ error: 'Failed to delete cluster' }, { status: 500 });
-    }
+    return NextResponse.json({ success: true });
+  } catch {
+    return NextResponse.json({ error: 'Failed to delete cluster' }, { status: 500 });
+  }
 }

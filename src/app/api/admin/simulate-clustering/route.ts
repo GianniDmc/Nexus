@@ -1,21 +1,10 @@
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { getServiceSupabase } from '@/lib/supabase-admin';
 
 // Replicate the logic from src/app/api/process/route.ts
 export async function POST(req: NextRequest) {
-    // Robust Service Role Client
-    const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!,
-        {
-            auth: {
-                persistSession: false,
-                autoRefreshToken: false,
-                detectSessionInUrl: false,
-            }
-        }
-    );
+    const supabase = getServiceSupabase();
 
     console.log('[DEBUG] API Start. Service Role Client initialized.');
 

@@ -1,41 +1,42 @@
 stateDiagram-v2
-    direction LR
+    direction TB
 
-    state "Articles" as Articles {
-        [*] --> Ingested: /api/ingest
-        Ingested --> Embedded: embedding
-        Embedded --> Clustered: clustering
-        Clustered --> Scored: scoring
-        Scored --> Rewritten: score >= seuil
-        Scored --> Rejected: score < seuil
-        Rewritten --> Published: summary OK
-        Rewritten --> Rejected: rewrite KO
-        Rejected --> [*]
-        Published --> [*]
-    }
+    [*] --> PendingScoring
 
-    state "Clusters" as Clusters {
-        [*] --> Created: aggreg.
-        
-        Created --> Pending: attente (Trop petit / Trop récent)
-        Pending --> Matured: time >= CLUSTER_MATURITY & Sources >= 2
-        
-        Matured --> Scored: scoring
-        
-        Scored --> Rejected: final_score < seuil
-        Scored --> Summarized: final_score >= seuil (Génération Résumé)
-        
-        Summarized --> Published: Validation Humaine
-        
-        %% Le cas du "mort de vieillesse"
-        Created --> Archived: timeout
-        Pending --> Archived: timeout
-        Matured --> Archived: timeout
-        Scored --> Archived: timeout (jamais résumé)
-        
-        Rejected --> [*]
-        Published --> [*]
-        Archived --> [*]
-    }
+    state "pending_scoring" as PendingScoring
+    state "low_score" as LowScore
+    state "anomaly_empty" as AnomalyEmpty
+    state "anomaly_summary_unpublished" as AnomalySummaryUnpublished
+    state "archived" as Archived
+    state "incubating_maturity_sources" as IncubatingBoth
+    state "incubating_maturity" as IncubatingMaturity
+    state "incubating_sources" as IncubatingSources
+    state "eligible_rewriting" as EligibleRewriting
+    state "published" as Published
 
-    Articles.Published --> Clusters.Created: cluster_id
+    PendingScoring --> LowScore: final_score < minScore
+    PendingScoring --> AnomalyEmpty: score OK + article_count = 0
+    PendingScoring --> AnomalySummaryUnpublished: score OK + has_summary
+    PendingScoring --> Archived: score OK + freshOnly + !has_fresh_article
+    PendingScoring --> IncubatingBoth: score OK + !mature + sources < minSources
+    PendingScoring --> IncubatingMaturity: score OK + !mature + sources >= minSources
+    PendingScoring --> IncubatingSources: score OK + mature + sources < minSources
+    PendingScoring --> EligibleRewriting: score OK + mature + sources >= minSources + fresh
+
+    IncubatingBoth --> IncubatingMaturity: sources >= minSources
+    IncubatingBoth --> IncubatingSources: mature
+    IncubatingMaturity --> EligibleRewriting: mature
+    IncubatingSources --> EligibleRewriting: sources >= minSources
+
+    IncubatingBoth --> Archived: freshness expirée
+    IncubatingMaturity --> Archived: freshness expirée
+    IncubatingSources --> Archived: freshness expirée
+    EligibleRewriting --> Archived: freshness expirée
+
+    EligibleRewriting --> Published: rewrite + summary OK + is_published=true
+
+    LowScore --> [*]
+    AnomalyEmpty --> [*]
+    AnomalySummaryUnpublished --> [*]
+    Archived --> [*]
+    Published --> [*]

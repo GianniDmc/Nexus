@@ -1,69 +1,56 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { getServiceSupabase } from '@/lib/supabase-admin';
+import { getPublicationConfig } from '@/lib/publication-rules';
 import {
-  getPublicationConfig,
-} from '@/lib/publication-rules';
+  classifyClusterEditorialState,
+  isMaturityState,
+  isSourceState,
+  type EditorialState,
+} from '@/lib/editorial-state';
 
 export const dynamic = 'force-dynamic';
 
+type CandidateCluster = {
+  id: string;
+  created_at: string;
+  final_score: number | null;
+  is_published: boolean;
+  summary: { id: string }[] | null;
+};
+
+type CandidateArticle = {
+  cluster_id: string | null;
+  source_name: string | null;
+  published_at: string | null;
+};
+
+type Bucket = { clusters: number; articles: number };
+
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
+  const minSourcesRaw = searchParams.get('minSources');
+  const minScoreRaw = searchParams.get('minScore');
+  const minSourcesParsed = minSourcesRaw !== null ? parseInt(minSourcesRaw, 10) : undefined;
+  const minScoreParsed = minScoreRaw !== null ? parseFloat(minScoreRaw) : undefined;
 
-  // Use centralized config with optional URL overrides
   const pubConfig = getPublicationConfig({
     freshOnly: searchParams.has('freshOnly') ? searchParams.get('freshOnly') !== 'false' : undefined,
-    minSources: searchParams.has('minSources') ? parseInt(searchParams.get('minSources')!) : undefined,
-    publishThreshold: searchParams.has('minScore') ? parseFloat(searchParams.get('minScore')!) : undefined,
+    minSources: Number.isFinite(minSourcesParsed) ? minSourcesParsed : undefined,
+    publishThreshold: Number.isFinite(minScoreParsed) ? minScoreParsed : undefined,
+    ignoreMaturity: searchParams.has('ignoreMaturity') ? searchParams.get('ignoreMaturity') === 'true' : undefined,
   });
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  const supabase = getServiceSupabase();
 
   try {
     const publishThreshold = pubConfig.publishThreshold;
-    const freshnessCutoff = pubConfig.freshnessCutoff;
 
-    // 1. Define all independent queries
-    const independentQueries = [
-      // unscoredClustersRes
-      supabase.from('clusters').select('id').is('final_score', null),
-      // candidateClustersRes
-      supabase.from('clusters').select('id').gte('final_score', publishThreshold).eq('is_published', false),
-      // publishedClustersRes
-      supabase.from('clusters').select('*', { count: 'exact', head: true }).eq('is_published', true),
-      // totalClustersRes
-      supabase.from('clusters').select('*', { count: 'exact', head: true }),
-      // pendingScoringArticlesCountRes
-      supabase.from('articles').select('cluster_id, clusters!articles_cluster_id_fkey!inner(final_score)', { count: 'exact', head: true }).is('clusters.final_score', null),
-      // totalRes
-      supabase.from('articles').select('*', { count: 'exact', head: true }),
-      // peRes
-      supabase.from('articles').select('*', { count: 'exact', head: true }).is('embedding', null),
-      // eRes
-      supabase.from('articles').select('*', { count: 'exact', head: true }).not('embedding', 'is', null),
-      // pcRes
-      supabase.from('articles').select('*', { count: 'exact', head: true }).not('embedding', 'is', null).is('cluster_id', null),
-      // cRes
-      supabase.from('articles').select('*', { count: 'exact', head: true }).not('cluster_id', 'is', null),
-      // lastArticleRes
-      supabase.from('articles').select('created_at').order('created_at', { ascending: false }).limit(1).single(),
-      // relevantClustersRes
-      supabase.from('clusters').select('*', { count: 'exact', head: true }).gte('final_score', publishThreshold),
-      // rejectedClustersRes
-      supabase.from('clusters').select('*', { count: 'exact', head: true }).lt('final_score', publishThreshold).not('final_score', 'is', null),
-      // scoredClustersCountRes
-      supabase.from('clusters').select('*', { count: 'exact', head: true }).not('final_score', 'is', null),
-      // pipelineStatsRes - Use RPC to get multiArticleClusters count directly from SQL
-      supabase.rpc('get_pipeline_stats')
-    ];
-
-    // 2. Execute all queries in parallel
+    // 1. Core counters (article + cluster pipeline state)
     const [
       unscoredClustersRes,
-      candidateClustersRes,
       publishedClustersRes,
+      publishedRelevantClustersRes,
+      summaryBlockedClustersRes,
       totalClustersRes,
       pendingScoringArticlesCountRes,
       totalRes,
@@ -75,69 +62,184 @@ export async function GET(req: Request) {
       relevantClustersRes,
       rejectedClustersRes,
       scoredClustersCountRes,
-      pipelineStatsRes
-    ] = (await Promise.all(independentQueries)) as any[];
-
-    // 3. Process candidate clusters and articles for publication stats
-    const candidateClusters = (candidateClustersRes.data as any[]) || [];
-    const candidateIdSet = new Set(candidateClusters.map((c: any) => c.id));
-
-    // Paginate to get articles FOR CANDIDATE CLUSTERS ONLY (Optimization)
-    // Instead of fetching ALL articles in DB, we only fetch those belonging to the candidate clusters.
-    let allClusterArticles: any[] = [];
-    const candidateIds = Array.from(candidateIdSet);
-
-    // Batch fetch (Supabase 'in' limit is safe around ~200-500, let's use 200 chunks)
-    const chunkSize = 200;
-    for (let i = 0; i < candidateIds.length; i += chunkSize) {
-      const batchIds = candidateIds.slice(i, i + chunkSize);
-      const { data: batch } = await supabase
+      pipelineStatsRes,
+    ] = await Promise.all([
+      supabase.from('clusters').select('*', { count: 'exact', head: true }).is('final_score', null),
+      supabase.from('clusters').select('*', { count: 'exact', head: true }).eq('is_published', true),
+      supabase.from('clusters').select('*', { count: 'exact', head: true }).eq('is_published', true).gte('final_score', publishThreshold),
+      supabase
+        .from('clusters')
+        .select('id, summary:summaries!summaries_cluster_id_fkey(id)', { count: 'exact', head: true })
+        .eq('is_published', false)
+        .gte('final_score', publishThreshold)
+        .not('summary', 'is', null),
+      supabase.from('clusters').select('*', { count: 'exact', head: true }),
+      supabase
         .from('articles')
-        .select('cluster_id, source_name, published_at')
-        .in('cluster_id', batchIds);
+        .select('cluster_id, clusters!articles_cluster_id_fkey!inner(final_score)', { count: 'exact', head: true })
+        .is('clusters.final_score', null),
+      supabase.from('articles').select('*', { count: 'exact', head: true }),
+      supabase.from('articles').select('*', { count: 'exact', head: true }).is('embedding', null),
+      supabase.from('articles').select('*', { count: 'exact', head: true }).not('embedding', 'is', null),
+      supabase.from('articles').select('*', { count: 'exact', head: true }).not('embedding', 'is', null).is('cluster_id', null),
+      supabase.from('articles').select('*', { count: 'exact', head: true }).not('cluster_id', 'is', null),
+      supabase.from('articles').select('created_at').order('created_at', { ascending: false }).limit(1).single(),
+      supabase.from('clusters').select('*', { count: 'exact', head: true }).gte('final_score', publishThreshold),
+      supabase.from('clusters').select('*', { count: 'exact', head: true }).lt('final_score', publishThreshold).not('final_score', 'is', null),
+      supabase.from('clusters').select('*', { count: 'exact', head: true }).not('final_score', 'is', null),
+      supabase.rpc('get_pipeline_stats'),
+    ] as const);
 
-      if (batch) {
-        allClusterArticles = allClusterArticles.concat(batch);
+    // 2. Fetch all rewrite-candidate clusters (high-score, unpublished, no summary)
+    const candidateClusters: CandidateCluster[] = [];
+    const pageSize = 1000;
+    let offset = 0;
+    let hasMore = true;
+
+    while (hasMore) {
+      const { data: batch, error } = await supabase
+        .from('clusters')
+        .select('id, created_at, final_score, is_published, summary:summaries!summaries_cluster_id_fkey(id)')
+        .gte('final_score', publishThreshold)
+        .eq('is_published', false)
+        .is('summary', null)
+        .range(offset, offset + pageSize - 1);
+
+      if (error) throw error;
+
+      if (batch && batch.length > 0) {
+        candidateClusters.push(...(batch as CandidateCluster[]));
+        if (batch.length < pageSize) {
+          hasMore = false;
+        } else {
+          offset += pageSize;
+        }
+      } else {
+        hasMore = false;
       }
     }
 
-    // Group articles by cluster for candidate filtering
-    const articlesByCluster: Record<string, any[]> = {};
+    const candidateIds = candidateClusters.map((cluster) => cluster.id);
+    const articlesByCluster: Record<string, CandidateArticle[]> = {};
 
-    allClusterArticles.forEach(a => {
-      if (candidateIdSet.has(a.cluster_id)) {
-        if (!articlesByCluster[a.cluster_id]) articlesByCluster[a.cluster_id] = [];
-        articlesByCluster[a.cluster_id].push(a);
+    // 3. Fetch all articles for candidate clusters (paginated per chunk to avoid 1000 row cap)
+    const chunkSize = 200;
+    for (let i = 0; i < candidateIds.length; i += chunkSize) {
+      const batchIds = candidateIds.slice(i, i + chunkSize);
+      let articleOffset = 0;
+      let moreArticles = true;
+
+      while (moreArticles) {
+        const { data: articleBatch, error } = await supabase
+          .from('articles')
+          .select('cluster_id, source_name, published_at')
+          .in('cluster_id', batchIds)
+          .range(articleOffset, articleOffset + pageSize - 1);
+
+        if (error) throw error;
+
+        if (articleBatch && articleBatch.length > 0) {
+          for (const article of articleBatch as CandidateArticle[]) {
+            if (!article.cluster_id) continue;
+            if (!articlesByCluster[article.cluster_id]) {
+              articlesByCluster[article.cluster_id] = [];
+            }
+            articlesByCluster[article.cluster_id].push(article);
+          }
+
+          if (articleBatch.length < pageSize) {
+            moreArticles = false;
+          } else {
+            articleOffset += pageSize;
+          }
+        } else {
+          moreArticles = false;
+        }
       }
-    });
+    }
 
-    // Get multiArticleClusters from RPC (accurate, calculated in SQL - bypasses row limit)
+    // 4. Classify using the single source of truth
+    const buckets = new Map<EditorialState, Bucket>();
+    const ensureBucket = (state: EditorialState): Bucket => {
+      const current = buckets.get(state);
+      if (current) return current;
+      const created = { clusters: 0, articles: 0 };
+      buckets.set(state, created);
+      return created;
+    };
+
+    for (const cluster of candidateClusters) {
+      const articles = articlesByCluster[cluster.id] || [];
+      const classification = classifyClusterEditorialState(
+        {
+          created_at: cluster.created_at,
+          final_score: cluster.final_score,
+          is_published: cluster.is_published,
+          has_summary: Array.isArray(cluster.summary) ? cluster.summary.length > 0 : false,
+          articles: articles.map((article) => ({
+            source_name: article.source_name,
+            published_at: article.published_at,
+          })),
+        },
+        {
+          minScore: publishThreshold,
+          minSources: pubConfig.minSources,
+          freshOnly: pubConfig.freshOnly,
+          freshnessCutoff: pubConfig.freshnessCutoff,
+          maturityHours: pubConfig.maturityHours,
+          ignoreMaturity: pubConfig.ignoreMaturity,
+        }
+      );
+
+      const bucket = ensureBucket(classification.state);
+      bucket.clusters += 1;
+      bucket.articles += classification.metrics.article_count;
+    }
+
+    const getBucket = (state: EditorialState): Bucket => buckets.get(state) || { clusters: 0, articles: 0 };
+
+    const rewriting = getBucket('eligible_rewriting');
+    const waitingMaturityStates = Array.from(buckets.keys()).filter(isMaturityState);
+    const waitingSourcesStates = Array.from(buckets.keys()).filter(isSourceState);
+
+    const waitingMaturity = waitingMaturityStates.reduce(
+      (acc, state) => {
+        const bucket = getBucket(state);
+        acc.clusters += bucket.clusters;
+        acc.articles += bucket.articles;
+        return acc;
+      },
+      { clusters: 0, articles: 0 }
+    );
+
+    const waitingSources = waitingSourcesStates.reduce(
+      (acc, state) => {
+        const bucket = getBucket(state);
+        acc.clusters += bucket.clusters;
+        acc.articles += bucket.articles;
+        return acc;
+      },
+      { clusters: 0, articles: 0 }
+    );
+
+    const archived = getBucket('archived');
+    const anomalyEmpty = getBucket('anomaly_empty');
     const pipelineStats = pipelineStatsRes.data || {};
     const multiArticleClusters = pipelineStats.multiArticleClusters || 0;
+    const publishedRelevantClusters = publishedRelevantClustersRes.count || 0;
+    const summaryBlockedClusters = summaryBlockedClustersRes.count || 0;
+    const relevantDecomposedClusters =
+      publishedRelevantClusters +
+      rewriting.clusters +
+      waitingMaturity.clusters +
+      waitingSources.clusters +
+      archived.clusters +
+      summaryBlockedClusters +
+      anomalyEmpty.clusters;
+    const relevantClusters = relevantClustersRes.count || 0;
+    const relevantGapClusters = relevantClusters - relevantDecomposedClusters;
 
-    // Filter validated clusters based on publication rules
-    const validatedClusters = candidateClusters.filter(c => {
-      const articles = articlesByCluster[c.id] || [];
-      if (articles.length === 0) return false;
-
-      if (pubConfig.freshOnly) {
-        const hasFresh = articles.some(a => new Date(a.published_at).getTime() >= new Date(freshnessCutoff).getTime());
-        if (!hasFresh) return false;
-      }
-
-      if (pubConfig.minSources > 1) {
-        const uniqueSources = new Set(articles.map(a => a.source_name)).size;
-        if (uniqueSources < pubConfig.minSources) return false;
-      }
-
-      return true;
-    });
-
-    const pendingActionableClustersCount = validatedClusters.length;
-    const validatedClusterIdSet = new Set(validatedClusters.map(c => c.id));
-    const pendingActionableArticlesCount = allClusterArticles.filter(a => validatedClusterIdSet.has(a.cluster_id)).length;
-
-    // 4. Return enriched stats
+    // 5. Return enriched stats
     return NextResponse.json({
       total: totalRes.count || 0,
       pendingEmbedding: peRes.count || 0,
@@ -146,21 +248,36 @@ export async function GET(req: Request) {
       clustered: cRes.count || 0,
       pendingScore: pendingScoringArticlesCountRes.count || 0,
       pendingScoring: pendingScoringArticlesCountRes.count || 0,
-      pendingScoreClusters: (unscoredClustersRes.data as any[])?.length || 0,
-      pendingRewriting: pendingActionableArticlesCount,
-      pendingActionable: pendingActionableArticlesCount,
-      pendingActionableClusters: pendingActionableClustersCount,
+      pendingScoreClusters: unscoredClustersRes.count || 0,
+
+      pendingRewriting: rewriting.articles,
+      pendingActionable: rewriting.articles,
+      pendingActionableClusters: rewriting.clusters,
+
+      pendingMaturity: waitingMaturity.articles,
+      pendingMaturityClusters: waitingMaturity.clusters,
+      pendingSources: waitingSources.articles,
+      pendingSourcesClusters: waitingSources.clusters,
+      pendingArchived: archived.articles,
+      pendingArchivedClusters: archived.clusters,
+
       scored: scoredClustersCountRes.count || 0,
-      relevant: relevantClustersRes.count || 0,
+      relevant: relevantClusters,
       rejected: rejectedClustersRes.count || 0,
+      publishedRelevantClusters,
+      summaryBlockedClusters,
+      anomalyEmptyClusters: anomalyEmpty.clusters,
+      relevantDecomposedClusters,
+      relevantGapClusters,
       pendingSkipped: 0,
-      ready: pendingActionableArticlesCount,
+      ready: 0,
       published: publishedClustersRes.count || 0,
       clusterCount: totalClustersRes.count || 0,
       multiArticleClusters,
-      lastSync: lastArticleRes.data?.created_at || null
+      lastSync: lastArticleRes.data?.created_at || null,
     });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

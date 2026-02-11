@@ -42,6 +42,10 @@ interface PipelineStats {
     pendingScoreClusters?: number;
     pendingRewriting?: number;
     pendingActionableClusters?: number;
+    pendingMaturity?: number;
+    pendingMaturityClusters?: number;
+    pendingSources?: number;
+    pendingSourcesClusters?: number;
 }
 
 export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
@@ -161,8 +165,7 @@ export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
                     step, config: getAIConfig(),
                     freshOnly: freshOnly,
                     minSources: minSources,
-                    publishThreshold: minScore, // Pass minScore
-                    ignoreMaturity: true // Manual runs bypass maturity check
+                    publishThreshold: minScore
                 }),
             });
             const data = await res.json();
@@ -196,8 +199,7 @@ export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
                         config: getAIConfig(),
                         freshOnly: freshOnly,
                         minSources: minSources,
-                        publishThreshold: minScore,
-                        ignoreMaturity: true // Manual runs bypass maturity check
+                        publishThreshold: minScore
                     }),
                     signal: abortControllerRef.current?.signal
                 });
@@ -443,6 +445,11 @@ export function ManualSteps({ onComplete }: { onComplete?: () => void }) {
                                         {subInfo && (
                                             <span className="text-[9px] text-muted-foreground/60 font-medium mt-0.5">
                                                 ({subInfo})
+                                            </span>
+                                        )}
+                                        {step.id === 'rewriting' && (
+                                            <span className="text-[9px] text-amber-500/90 font-medium mt-1 text-center">
+                                                En attente maturité: {stats.pendingMaturityClusters || 0} sujets ({stats.pendingMaturity || 0} articles)
                                             </span>
                                         )}
                                     </div>

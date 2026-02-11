@@ -35,6 +35,7 @@ Ce document consigne les choix techniques structurants du projet **App Curation 
 | ADR-027 | 2026-02-04 | Externalisation des Crons vers GitHub Actions | Validé |
 | ADR-028 | 2026-02-05 | Stratégie de Partage et Route `/story/[id]` | Validé |
 | ADR-029 | 2026-02-05 | Affinement du Consensus par Sources Uniques | Validé |
+| ADR-030 | 2026-02-11 | Source unique de vérité éditoriale + réconciliation des métriques | Validé |
 
 ---
 
@@ -565,3 +566,57 @@ Standardiser la définition du **Consensus** :
 ### Conséquences
 -   **Positif** : Cohérence totale entre ce que l'éditeur voit et ce que l'IA va traiter. Réduction du bruit (élimination des "compilations" d'une seule source).
 -   **Négatif** : Un scoop exclusif relayé massivement par une seule source restera en "Incubation" tant qu'un autre média ne l'aura pas repris (ce qui est le comportement souhaité pour un agrégateur de "Consensus").
+
+---
+
+## ADR-030 : Source unique de vérité éditoriale + réconciliation des métriques
+
+### Contexte
+Les chiffres divergeaient entre:
+- la file éditoriale (`/api/admin/articles`),
+- le dashboard (`/api/admin/stats`),
+- et la sélection réelle du process rewriting (`runProcess`).
+
+Des symptômes visibles apparaissaient:
+- onglet "File d'attente" non aligné avec "Rédaction",
+- "Attente maturité" contenant des mono-sources ambiguës,
+- dashboard difficile à lire car mélange d'unités (articles vs clusters) et décompositions implicites.
+
+### Décision
+1. **Classifier centralisé**
+   - Introduire `src/lib/editorial-state.ts` comme moteur unique de classification.
+   - Tous les consommateurs (API articles, API stats, process rewriting) utilisent le même classifier.
+2. **States explicites et exclusifs côté tabs**
+   - `incubating_maturity` = maturité pure.
+   - `incubating_sources` = sources insuffisantes, y compris l'état mixte `incubating_maturity_sources`.
+3. **Maturité basée sur l'âge réel du sujet**
+   - Ancre de maturité = `oldest article.published_at`.
+   - Fallback `cluster.created_at` uniquement si dates articles absentes.
+4. **Réconciliation métrique visible**
+   - Dashboard enrichi avec des compteurs de décomposition:
+     - `publishedRelevantClusters`,
+     - `pendingActionableClusters`,
+     - `pendingMaturityClusters`,
+     - `pendingSourcesClusters`,
+     - `pendingArchivedClusters`,
+     - `summaryBlockedClusters`,
+     - `anomalyEmptyClusters`,
+     - deltas de cohérence (`relevantGapClusters`).
+   - Diffusion affichée en "sujets pertinents publiés" avec sous-total "total publiés".
+5. **Aucune nouvelle logique SQL obligatoire**
+   - Pas de nouvelle migration fonctionnelle obligatoire pour la state machine.
+   - La RPC historique `get_pipeline_stats` reste utilisée pour les agrégats existants.
+
+### Fichiers impactés
+- `src/lib/editorial-state.ts`
+- `src/app/api/admin/articles/route.ts`
+- `src/app/api/admin/stats/route.ts`
+- `src/lib/pipeline/process.ts`
+- `src/components/admin/ArticleManager.tsx`
+- `src/components/admin/ManualSteps.tsx`
+- `src/app/admin/page.tsx`
+
+### Conséquences
+- **Positif** : Cohérence stricte entre UI éditoriale, dashboard et exécution pipeline.
+- **Positif** : Débogage simplifié grâce aux deltas de réconciliation affichés.
+- **Négatif** : Complexité logique déplacée côté TypeScript (classifier), demandant discipline de maintenance.

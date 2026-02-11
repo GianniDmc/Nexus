@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import { getServiceSupabase } from '../supabase-admin';
 import {
   rewriteArticle,
   generateEmbedding,
@@ -15,6 +15,7 @@ import {
   getPublicationConfig,
   type PublicationOverrides
 } from '../publication-rules';
+import { classifyClusterEditorialState } from '../editorial-state';
 
 export type ProcessStep = 'embedding' | 'clustering' | 'scoring' | 'rewriting' | 'all';
 
@@ -56,10 +57,7 @@ function normalizeCategory(sourceCategory: string | null): string {
 }
 
 export async function runProcess(options: ProcessOptions = {}): Promise<ProcessResult> {
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  const supabase = getServiceSupabase();
 
   const log = options.log || console.log;
   const step: ProcessStep = options.step || 'all';
@@ -76,6 +74,8 @@ export async function runProcess(options: ProcessOptions = {}): Promise<ProcessR
 
   const useProcessingState = options.useProcessingState ?? true;
   const maxExecutionMs = options.maxExecutionMs ?? 270000;
+  const runId = crypto.randomUUID();
+  let lockAcquired = false;
 
   const safeShouldStop = async () => {
     if (!useProcessingState) return false;
@@ -89,15 +89,15 @@ export async function runProcess(options: ProcessOptions = {}): Promise<ProcessR
 
   let canStart = true;
   if (useProcessingState) {
-    canStart = await startProcessing(step);
+    canStart = await startProcessing(step, runId);
     if (!canStart) {
-      await finishProcessing();
       return {
         success: true,
         step,
         processed: { ...results, stopped: true }
       };
     }
+    lockAcquired = true;
   }
 
   // Detect keys from request config OR environment variables (Vital for Cron)
@@ -310,127 +310,183 @@ export async function runProcess(options: ProcessOptions = {}): Promise<ProcessR
     // STEP 4: REWRITING & PUBLISHING (REVERSE LOOKUP OPTIMIZATION)
     // ═══════════════════════════════════════════════════════════════════
     while ((step === 'rewriting' || step === 'all') && isTimeSafelyRemaining() && !results.stopped) {
-      const { data: publishedClusters } = await supabase
-        .from('clusters')
-        .select('id')
-        .eq('is_published', true);
+      type RewriteCandidate = {
+        id: string;
+        created_at: string;
+        final_score: number | null;
+        is_published: boolean;
+        summary: { id: string }[] | null;
+      };
 
-      const publishedClusterIds = new Set(publishedClusters?.map((item) => item.id));
+      type CandidateArticle = {
+        cluster_id: string | null;
+        source_name: string | null;
+        published_at: string | null;
+      };
 
-      // 1. Reverse Lookup: Find clusters active recently
-      const freshnessCutoff = pubConfig.freshnessCutoff;
-      log(`[REWRITE] Reverse Lookup: Finding active clusters since ${freshnessCutoff}...`);
+      const chunkSize = 200;
+      const pageSize = 1000;
+      const candidateClusters: RewriteCandidate[] = [];
 
-      const potentialClusterIds = new Set<string>();
-      let freshOffset = 0;
-      const freshLimit = 1000;
+      if (pubConfig.freshOnly) {
+        // Reverse lookup only for fresh clusters to reduce scan cost.
+        const potentialClusterIds = new Set<string>();
+        let freshOffset = 0;
 
-      while (true) {
-        if (await safeShouldStop()) { results.stopped = true; break; }
+        while (true) {
+          if (await safeShouldStop()) { results.stopped = true; break; }
 
-        const { data: freshBatch } = await supabase
-          .from('articles')
-          .select('cluster_id')
-          .gte('published_at', freshnessCutoff)
-          .not('cluster_id', 'is', null)
-          .range(freshOffset, freshOffset + freshLimit - 1);
+          const { data: freshBatch, error: freshError } = await supabase
+            .from('articles')
+            .select('cluster_id')
+            .gte('published_at', pubConfig.freshnessCutoff)
+            .not('cluster_id', 'is', null)
+            .range(freshOffset, freshOffset + pageSize - 1);
 
-        if (!freshBatch || freshBatch.length === 0) break;
+          if (freshError) throw freshError;
+          if (!freshBatch || freshBatch.length === 0) break;
 
-        freshBatch.forEach(a => {
-          if (a.cluster_id) potentialClusterIds.add(a.cluster_id);
-        });
+          for (const article of freshBatch) {
+            if (article.cluster_id) potentialClusterIds.add(article.cluster_id);
+          }
 
-        if (freshBatch.length < freshLimit) break;
-        freshOffset += freshLimit;
+          if (freshBatch.length < pageSize) break;
+          freshOffset += pageSize;
+        }
+
+        const freshClusterIds = Array.from(potentialClusterIds);
+        if (results.stopped) break;
+
+        for (let i = 0; i < freshClusterIds.length; i += chunkSize) {
+          if (await safeShouldStop()) { results.stopped = true; break; }
+          const batchIds = freshClusterIds.slice(i, i + chunkSize);
+          const { data: batchClusters, error: batchError } = await supabase
+            .from('clusters')
+            .select('id, created_at, final_score, is_published, summary:summaries!summaries_cluster_id_fkey(id)')
+            .in('id', batchIds)
+            .gte('final_score', publishThreshold)
+            .eq('is_published', false)
+            .is('summary', null);
+
+          if (batchError) throw batchError;
+          if (batchClusters) candidateClusters.push(...(batchClusters as RewriteCandidate[]));
+        }
+      } else {
+        // If freshness is disabled, evaluate all unpublished/high-score/no-summary clusters.
+        let clusterOffset = 0;
+        let hasMoreClusters = true;
+
+        while (hasMoreClusters) {
+          if (await safeShouldStop()) { results.stopped = true; break; }
+          const { data: batchClusters, error: batchError } = await supabase
+            .from('clusters')
+            .select('id, created_at, final_score, is_published, summary:summaries!summaries_cluster_id_fkey(id)')
+            .gte('final_score', publishThreshold)
+            .eq('is_published', false)
+            .is('summary', null)
+            .range(clusterOffset, clusterOffset + pageSize - 1);
+
+          if (batchError) throw batchError;
+
+          if (batchClusters && batchClusters.length > 0) {
+            candidateClusters.push(...(batchClusters as RewriteCandidate[]));
+            if (batchClusters.length < pageSize) {
+              hasMoreClusters = false;
+            } else {
+              clusterOffset += pageSize;
+            }
+          } else {
+            hasMoreClusters = false;
+          }
+        }
       }
 
-      const activeClusterIds = Array.from(potentialClusterIds).filter(id => !publishedClusterIds.has(id));
-      log(`[REWRITE] Found ${activeClusterIds.length} active unpublished clusters.`);
-
-      if (activeClusterIds.length === 0 || results.stopped) {
-        if (!results.stopped) log('[REWRITE] No active clusters found.');
+      if (results.stopped) break;
+      if (candidateClusters.length === 0) {
+        log('[REWRITE] No candidate clusters found.');
         break;
       }
 
-      // 2. Pre-filter active clusters by Score (Batch fetch)
-      const validCandidates: { id: string, final_score: number }[] = [];
-      const chunkSize = 100;
+      const candidateIds = candidateClusters.map((cluster) => cluster.id);
+      const articlesByCluster: Record<string, CandidateArticle[]> = {};
 
-      for (let i = 0; i < activeClusterIds.length; i += chunkSize) {
-        const batchIds = activeClusterIds.slice(i, i + chunkSize);
-        const { data: batchClusters } = await supabase
-          .from('clusters')
-          .select('id, final_score')
-          .in('id', batchIds)
-          .gte('final_score', publishThreshold)
-          .eq('is_published', false);
-
-        if (batchClusters) validCandidates.push(...batchClusters);
-      }
-
-      // Sort candidates by score descending
-      validCandidates.sort((a, b) => b.final_score - a.final_score);
-      log(`[REWRITE] ${validCandidates.length} clusters passed score threshold (${publishThreshold}).`);
-
-      if (validCandidates.length === 0) {
-        break;
-      }
-
-      // 3. Full Verification (Fetch all articles for history check)
-      const filteredClusterIds: string[] = [];
-      const candidateIds = validCandidates.map(c => c.id);
-
-      let allArticles: any[] = [];
       for (let i = 0; i < candidateIds.length; i += chunkSize) {
+        if (await safeShouldStop()) { results.stopped = true; break; }
         const batchIds = candidateIds.slice(i, i + chunkSize);
-        const { data: batchArticles } = await supabase
-          .from('articles')
-          .select('cluster_id, source_name, published_at')
-          .in('cluster_id', batchIds);
+        let articleOffset = 0;
+        let hasMoreArticles = true;
 
-        if (batchArticles) allArticles.push(...batchArticles);
+        while (hasMoreArticles) {
+          const { data: articleBatch, error: articleError } = await supabase
+            .from('articles')
+            .select('cluster_id, source_name, published_at')
+            .in('cluster_id', batchIds)
+            .range(articleOffset, articleOffset + pageSize - 1);
+
+          if (articleError) throw articleError;
+
+          if (articleBatch && articleBatch.length > 0) {
+            for (const article of articleBatch as CandidateArticle[]) {
+              if (!article.cluster_id) continue;
+              if (!articlesByCluster[article.cluster_id]) {
+                articlesByCluster[article.cluster_id] = [];
+              }
+              articlesByCluster[article.cluster_id].push(article);
+            }
+
+            if (articleBatch.length < pageSize) {
+              hasMoreArticles = false;
+            } else {
+              articleOffset += pageSize;
+            }
+          } else {
+            hasMoreArticles = false;
+          }
+        }
       }
 
-      const articlesByCluster = allArticles.reduce((acc, art) => {
-        if (!acc[art.cluster_id]) acc[art.cluster_id] = [];
-        acc[art.cluster_id].push(art);
-        return acc;
-      }, {} as Record<string, any[]>);
+      if (results.stopped) break;
 
-      for (const cluster of validCandidates) {
-        if (filteredClusterIds.length >= processingLimit) break;
+      const eligibleClusterIds = candidateClusters
+        .filter((cluster) => {
+          const articles = articlesByCluster[cluster.id] || [];
+          const classification = classifyClusterEditorialState(
+            {
+              created_at: cluster.created_at,
+              final_score: cluster.final_score,
+              is_published: cluster.is_published,
+              has_summary: Array.isArray(cluster.summary) ? cluster.summary.length > 0 : false,
+              articles: articles.map((article) => ({
+                source_name: article.source_name,
+                published_at: article.published_at,
+              })),
+            },
+            {
+              minScore: publishThreshold,
+              minSources: pubConfig.minSources,
+              freshOnly: pubConfig.freshOnly,
+              freshnessCutoff: pubConfig.freshnessCutoff,
+              maturityHours: pubConfig.maturityHours,
+              ignoreMaturity: pubConfig.ignoreMaturity,
+            }
+          );
 
-        const clusterArticles = articlesByCluster[cluster.id] || [];
-        if (clusterArticles.length === 0) continue;
+          return classification.state === 'eligible_rewriting';
+        })
+        .sort((a, b) => (b.final_score ?? -Infinity) - (a.final_score ?? -Infinity))
+        .slice(0, processingLimit)
+        .map((cluster) => cluster.id);
 
-        // Maturity Check
-        if (!pubConfig.ignoreMaturity && pubConfig.maturityHours > 0) {
-          clusterArticles.sort((a: any, b: any) => new Date(a.published_at).getTime() - new Date(b.published_at).getTime());
-          const oldestArticleDate = new Date(clusterArticles[0].published_at).getTime();
-          const maturityMillis = pubConfig.maturityHours * 60 * 60 * 1000;
-          if ((Date.now() - oldestArticleDate) < maturityMillis) continue;
-        }
-
-        // Min Sources Check
-        if (pubConfig.minSources > 1) {
-          const uniqueSources = new Set(clusterArticles.map((a: any) => a.source_name)).size;
-          if (uniqueSources < pubConfig.minSources) continue;
-        }
-
-        filteredClusterIds.push(cluster.id);
-      }
-
-      if (filteredClusterIds.length === 0) {
-        log('[REWRITE] No clusters passed final filters (Sources/Maturity).');
+      if (eligibleClusterIds.length === 0) {
+        log('[REWRITE] No eligible clusters (maturity/sources/freshness constraints).');
         break;
       }
 
-      log(`[REWRITE] Found ${filteredClusterIds.length} eligible clusters ready for rewriting.`);
+      log(`[REWRITE] Found ${eligibleClusterIds.length} eligible clusters ready for rewriting.`);
       await safeUpdateProgress(results.rewritten, -1, `Démarrage rédaction batch...`);
 
       let processedInBatch = 0;
-      for (const clusterId of filteredClusterIds) {
+      for (const clusterId of eligibleClusterIds) {
         if (await safeShouldStop()) { results.stopped = true; break; }
         if (!isTimeSafelyRemaining()) { results.stopped = true; break; }
 
@@ -517,8 +573,8 @@ export async function runProcess(options: ProcessOptions = {}): Promise<ProcessR
     }
     return { success: false, error: message, step, processed: results };
   } finally {
-    if (useProcessingState) {
-      await finishProcessing();
+    if (useProcessingState && lockAcquired) {
+      await finishProcessing(runId);
     }
   }
 }
