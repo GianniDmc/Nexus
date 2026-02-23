@@ -469,7 +469,7 @@ L'approche initiale "Deep Search" scannait la table `clusters` triée par score.
 
 ### Décision
 Adopter une stratégie **"Reverse Lookup"** (Recherche Inversée) :
-1.  **Point de départ** : Requêter la table `articles` pour trouver les articles publiés dans la fenêtre de fraîcheur (ex: < 48h).
+1.  **Point de départ** : Requêter la table `articles` pour trouver les articles publiés dans la fenêtre de fraîcheur (ex: < 72h).
 2.  **Projection** : Extraire les `cluster_id` uniques de ces articles frais pour ne cibler que les sujets actifs.
 3.  **Vérification** : Récupérer ces clusters pour valider Score et Statut, puis fetcher leur historique complet pour valider la règle multi-sources.
 
@@ -493,7 +493,7 @@ Formaliser une **Machine à États** stricte pour les clusters, indépendante de
 4.  **Eligible** : Bon score + **Mature** (> 3h ET >= 2 sources). Prêt pour rédaction.
 5.  **Ready** : Synthèse générée par l'IA. En attente de validation humaine.
 6.  **Published** : Validé et en ligne.
-7.  **Archived** : Était bon mais a expiré (> 48h) avant de devenir Eligible.
+7.  **Archived** : Était bon mais a expiré (> 72h) avant de devenir Eligible.
 
 ### Conséquences
 -   **Positif** : Clarté totale pour l'éditeur. Les sujets prometteurs ne sont plus perdus. Le système "attend" intelligemment qu'une seconde source confirme une info avant de proposer une synthèse.

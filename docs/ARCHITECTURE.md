@@ -50,7 +50,7 @@ Définies dans `src/lib/publication-rules.ts` et réutilisées par l'admin + l'A
 
 - **Seuil de publication** : `PUBLISH_THRESHOLD = 8.0`
 - **Sources minimum** : `MIN_SOURCES = 2`
-- **Fraîcheur** : `FRESHNESS_HOURS = 48`
+- **Fraîcheur** : `FRESHNESS_HOURS = 72`
 - **Maturité cluster** : `CLUSTER_MATURITY_HOURS = 3`
 - **Ingestion max age** : `INGESTION_MAX_AGE_HOURS = 720` (30 jours)
 

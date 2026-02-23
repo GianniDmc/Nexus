@@ -23,7 +23,7 @@ export const PUBLICATION_RULES = {
      * Only process clusters with at least one article younger than this
      * Set to 0 to disable freshness filter
      */
-    FRESHNESS_HOURS: 48,
+    FRESHNESS_HOURS: 72,
 
     /**
      * Whether freshness filter is enabled by default
