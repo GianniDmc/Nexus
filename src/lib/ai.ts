@@ -53,43 +53,46 @@ const createChatCompletion = async (
 
   // 1. Try user-provided OpenAI
   if ((pref === 'openai' || pref === 'auto') && overrideConfig?.openaiKey) {
+    const model = modelTier === 'fast' ? 'gpt-5-mini' : 'gpt-5.2';
     try {
       const client = new OpenAI({ apiKey: overrideConfig.openaiKey });
-      console.log('🔑 Using custom OpenAI key');
-      const model = modelTier === 'fast' ? 'gpt-5-mini' : 'gpt-5.2'; // gpt-5-mini for fast/cheap, gpt-5.2 for quality
-      return await client.chat.completions.create({
+      const result = await client.chat.completions.create({
         ...payload,
         model,
         stream: false
       });
-    } catch (e) {
-      console.warn("⚠️ Custom OpenAI failed:", e);
+      console.log(`[LLM] ✅ OpenAI/${model} (${modelTier}) — user key`);
+      return result;
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn(`[LLM] ⚠️ OpenAI/${model} failed: ${msg}`);
       lastError = e;
     }
   }
 
   // 2. Try user-provided Anthropic
   if ((pref === 'anthropic' || pref === 'auto') && overrideConfig?.anthropicKey) {
+    const model = modelTier === 'fast' ? 'claude-haiku-4-5' : 'claude-sonnet-4-5-20250929';
     try {
       const client = new Anthropic({ apiKey: overrideConfig.anthropicKey });
-      console.log('🔑 Using custom Anthropic key');
-      // Haiku 4.5 ($1.00) for fast, Sonnet 4.5 ($3.00) for smart
-      const model = modelTier === 'fast' ? 'claude-haiku-4-5' : 'claude-sonnet-4-5-20250929';
       const response = await client.messages.create({
         model,
         max_tokens: 4096,
         messages: [{ role: 'user', content: getPrompt() }]
       });
       const text = response.content[0].type === 'text' ? response.content[0].text : '';
+      console.log(`[LLM] ✅ Anthropic/${model} (${modelTier}) — user key`);
       return { choices: [{ message: { content: text } }] };
-    } catch (e) {
-      console.warn("⚠️ Custom Anthropic failed:", e);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn(`[LLM] ⚠️ Anthropic/${model} failed: ${msg}`);
       lastError = e;
     }
   }
 
   // 3. Try Gemini (user-provided or default)
   const geminiKey = overrideConfig?.geminiKey || process.env.GOOGLE_API_KEY;
+  const geminiModelName = 'gemini-3-flash-preview';
   if ((pref === 'gemini' || pref === 'auto') && geminiKey) {
     try {
       const genAI = overrideConfig?.geminiKey
@@ -97,35 +100,44 @@ const createChatCompletion = async (
         : getGenAI();
 
       if (genAI) {
-        if (overrideConfig?.geminiKey) console.log('🔑 Using custom Gemini key');
+        const keySource = overrideConfig?.geminiKey ? 'user key' : 'env';
         const geminiModel = genAI.getGenerativeModel({
-          model: "gemini-3-flash-preview", // Updated to 2026 standard
+          model: geminiModelName,
           generationConfig: { responseMimeType: payload.response_format?.type === 'json_object' ? "application/json" : "text/plain" }
         });
         const result = await geminiModel.generateContent(getPrompt());
+        console.log(`[LLM] ✅ Gemini/${geminiModelName} (${modelTier}) — ${keySource}`);
         return { choices: [{ message: { content: result.response.text() } }] };
       }
-    } catch (e) {
-      console.warn("⚠️ Gemini failed:", e);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      // Extraire juste le code d'erreur, pas le stack complet
+      const shortMsg = msg.includes(']') ? msg.substring(msg.lastIndexOf(']') + 2, msg.lastIndexOf(']') + 80) : msg.substring(0, 80);
+      console.warn(`[LLM] ⚠️ Gemini/${geminiModelName} failed: ${shortMsg}`);
       lastError = e;
     }
   }
 
   // 4. Fallback to Groq (Llama 3)
+  const groqModel = 'llama-3.3-70b-versatile';
   const groqClient = getGroq();
   if (groqClient) {
     for (let attempt = 0; attempt < maxLlmAttempts; attempt += 1) {
       try {
-        return await groqClient.chat.completions.create({ ...payload, stream: false });
-      } catch (error) {
+        const result = await groqClient.chat.completions.create({ ...payload, stream: false });
+        console.log(`[LLM] ✅ Groq/${groqModel} (${modelTier}) — fallback${attempt > 0 ? ` (retry ${attempt})` : ''}`);
+        return result;
+      } catch (error: unknown) {
         lastError = error;
+        const msg = error instanceof Error ? error.message : String(error);
         const delay = baseRetryDelayMs * Math.pow(2, attempt);
+        console.warn(`[LLM] ⚠️ Groq attempt ${attempt + 1}/${maxLlmAttempts} failed: ${msg.substring(0, 80)}`);
         if (attempt < maxLlmAttempts - 1) await sleep(delay);
       }
     }
   }
 
-  console.error("❌ All AI Providers Failed.");
+  console.error('[LLM] ❌ All providers failed');
   throw lastError;
 };
 
@@ -161,11 +173,12 @@ Exemple: { "123": 8, "456": 2 }
 `;
 
   try {
+    console.log(`[LLM] 🎯 Scoring batch (${articles.length} articles)`);
     const response = await createChatCompletion({
       model: 'llama-3.3-70b-versatile',
       messages: [{ role: 'user', content: prompt }],
       response_format: { type: 'json_object' }
-    }, overrideConfig, 'fast'); // Scoring = Fast/Cheap
+    }, overrideConfig, 'fast');
 
     return JSON.parse(response.choices[0].message.content || '{}');
   } catch (error) {
@@ -234,11 +247,12 @@ Réponds UNIQUEMENT un JSON : { "score": number, "representative_id": "uuid_stri
 `;
 
   try {
+    console.log(`[LLM] 🎯 Cluster scoring (${articles.length} articles)`);
     const response = await createChatCompletion({
       model: 'llama-3.3-70b-versatile',
       messages: [{ role: 'user', content: prompt }],
       response_format: { type: 'json_object' }
-    }, overrideConfig, 'fast'); // Scoring is fast
+    }, overrideConfig, 'fast');
 
     const result = JSON.parse(response.choices[0].message.content || '{}');
     return {
@@ -282,11 +296,12 @@ FORMAT JSON:
 }`;
 
   try {
+    console.log(`[LLM] 🎯 Rewriting (${sources.length} sources)`);
     const response = await createChatCompletion({
       model: 'llama-3.3-70b-versatile',
       messages: [{ role: 'user', content: prompt }],
       response_format: { type: 'json_object' },
-    }, overrideConfig, 'smart'); // Rewriting = High Quality
+    }, overrideConfig, 'smart');
     return JSON.parse(response.choices[0].message.content || '{}');
   } catch (error) {
     console.error('Rewrite Error:', error);
@@ -295,13 +310,14 @@ FORMAT JSON:
 }
 
 export async function generateEmbedding(text: string, apiKey?: string) {
+  const embeddingModel = 'gemini-embedding-001';
   let model;
   if (apiKey) {
     const genAI = new GoogleGenerativeAI(apiKey);
-    model = genAI.getGenerativeModel({ model: "models/gemini-embedding-001" });
+    model = genAI.getGenerativeModel({ model: `models/${embeddingModel}` });
   } else {
     if (!getGenAI()) return null;
-    model = getGenAI()!.getGenerativeModel({ model: "models/gemini-embedding-001" });
+    model = getGenAI()!.getGenerativeModel({ model: `models/${embeddingModel}` });
   }
 
   const result = await model.embedContent({
