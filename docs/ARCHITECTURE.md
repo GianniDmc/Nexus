@@ -13,7 +13,7 @@ graph TD
 ```
 
 ### Endpoints principaux
-- **`/api/ingest`** : parse les RSS, scrape le contenu complet, ignore les articles trop anciens.
+- **`/api/ingest`** : parse les RSS, scrape le contenu complet (sauf `skip_scrape`), filtre incrémental par `last_fetched_at`.
 - **`/api/process`** : pipeline séquentiel (`embedding` → `clustering` → `scoring` → `rewriting/publish`).
 - **`/api/admin/refresh`** : enchaîne ingestion + 1–N cycles de processing bornés.
 - **`/api/digest`** : génère un digest à la demande à partir des articles résumés des dernières 24h.
@@ -189,7 +189,7 @@ Le dashboard `/admin` expose désormais les contrôles de cohérence suivants:
   - *Index* : `articles_cluster_id_idx` ajouté pour optimiser les jointures de comptage dans l'admin.
 - **clusters** : agrégation éditoriale (`label`, `representative_article_id`, `final_score`, `is_published`, `published_on`, `category`, `image_url`).
 - **summaries** : contenu généré (`title`, `content_tldr`, `content_analysis`, `content_full`, `image_url`, `source_count`).
-- **sources** : catalogue RSS avec catégorie, `is_active`, `last_fetched_at`.
+- **sources** : catalogue RSS avec catégorie, `is_active`, `last_fetched_at`, `skip_scrape`.
 - **app_state** : mutex + progression pipeline.
 - **digests** : digest quotidien JSON.
 - **reading_list** : structure prête pour future auth.

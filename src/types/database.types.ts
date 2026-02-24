@@ -236,6 +236,7 @@ export type Database = {
           is_active: boolean | null
           last_fetched_at: string | null
           name: string
+          skip_scrape: boolean | null
           url: string
         }
         Insert: {
@@ -245,6 +246,7 @@ export type Database = {
           is_active?: boolean | null
           last_fetched_at?: string | null
           name: string
+          skip_scrape?: boolean | null
           url: string
         }
         Update: {
@@ -254,6 +256,7 @@ export type Database = {
           is_active?: boolean | null
           last_fetched_at?: string | null
           name?: string
+          skip_scrape?: boolean | null
           url?: string
         }
         Relationships: []

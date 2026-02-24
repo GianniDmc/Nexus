@@ -37,6 +37,7 @@ Ce document consigne les choix techniques structurants du projet **App Curation 
 | ADR-029 | 2026-02-05 | Affinement du Consensus par Sources Uniques | Validé |
 | ADR-030 | 2026-02-11 | Source unique de vérité éditoriale + réconciliation des métriques | Validé |
 | ADR-031 | 2026-02-11 | Profils d'exécution centralisés + process modulaire | Validé |
+| ADR-032 | 2026-02-24 | Ingest incrémental + skip_scrape configurable | Validé |
 
 ---
 
@@ -679,3 +680,25 @@ Avec l'usage GitHub Actions (moins contraint que Vercel), il fallait pouvoir aju
 - **Positif** : maintenance simplifiée (`process.ts` lisible, étapes isolées).
 - **Positif** : meilleure prédictibilité des exécutions selon le contexte (API, admin, refresh, cron).
 - **Négatif** : plus de fichiers et de surfaces de config, nécessitant une discipline de documentation.
+
+---
+
+## ADR-032 : Ingest incrémental + skip_scrape configurable
+
+### Contexte
+L'ingest comparait chaque article RSS à un cutoff statique de 720h, re-traitant des centaines d'articles déjà en base. Certaines sources (TechRepublic, BleepingComputer) bloquaient systématiquement le scraping (403/429), générant des dizaines d'erreurs inutiles. La recherche dans le CMS raw-articles faisait un scan ILIKE sur `content` (texte complet), causant des timeouts (500).
+
+### Décision
+1. **Ingest incrémental** : utiliser `source.last_fetched_at` comme cutoff (avec 1h de marge de sécurité), fallback 720h pour les nouvelles sources.
+2. **`skip_scrape` configurable** : nouvelle colonne `boolean` dans `sources`. Quand `true`, l'ingest utilise directement le contenu RSS sans tenter de scraper. Activé pour TechRepublic et BleepingComputer.
+3. **Recherche CMS** : limiter le `.ilike` au titre uniquement dans `/api/admin/raw-articles`.
+
+### Fichiers impactés
+- `src/lib/pipeline/ingest.ts` (incrémental + skip_scrape)
+- `src/app/api/admin/raw-articles/route.ts` (search fix)
+- `supabase/migrations/20260224000000_add_skip_scrape.sql`
+- `src/types/database.types.ts` (regénéré)
+
+### Conséquences
+- **Positif** : Ingest plus rapide (moins d'articles à traiter), 0 erreurs 403 pour les sources bloquées, recherche CMS fiable.
+- **Négatif** : Les sources `skip_scrape` n'ont pas d'image og:image ni de contenu enrichi (RSS only), mais suffisant pour le clustering.

@@ -37,6 +37,8 @@ type ActiveSource = {
   name: string;
   url: string;
   category: string;
+  last_fetched_at: string | null;
+  skip_scrape: boolean;
 };
 
 type ArticleInsertPayload = {
@@ -76,17 +78,25 @@ async function processBatch(
       let content = item.contentSnippet || item.content || '';
       let imageUrl: string | null = null;
 
-      // Scrape source URL for og:image and potentially richer content
-      try {
-        const scraped = await scrapeArticle(item.link);
-        imageUrl = scraped.imageUrl;
+      // Extract image from RSS enclosure if available
+      const itemWithEnclosure = item as Parser.Item & { enclosure?: { url?: string; type?: string } };
+      if (itemWithEnclosure.enclosure?.url && itemWithEnclosure.enclosure.type?.startsWith('image')) {
+        imageUrl = itemWithEnclosure.enclosure.url;
+      }
 
-        // Use scraped content if it's significantly longer than RSS snippet
-        if (scraped.fullContent && scraped.fullContent.length > content.length * 1.5) {
-          content = scraped.fullContent;
+      // Scrape source URL for og:image and richer content (unless source blocks it)
+      if (!source.skip_scrape) {
+        try {
+          const scraped = await scrapeArticle(item.link);
+          imageUrl = scraped.imageUrl || imageUrl;
+
+          // Use scraped content if it's significantly longer than RSS snippet
+          if (scraped.fullContent && scraped.fullContent.length > content.length * 1.5) {
+            content = scraped.fullContent;
+          }
+        } catch {
+          log(`[INGEST] Scrape failed for ${item.link}, using RSS content`);
         }
-      } catch {
-        log(`[INGEST] Scrape failed for ${item.link}, using RSS content`);
       }
 
       return {
@@ -129,7 +139,7 @@ async function processSource(
   sourceTimeoutMs: number,
   retrySourceTimeoutMs: number,
   log: (message: string) => void
-) : Promise<SourceProcessResult> {
+): Promise<SourceProcessResult> {
   try {
     let feedText: string;
 
@@ -165,7 +175,11 @@ async function processSource(
 
     const feed = await parser.parseString(feedText);
 
-    const ingestionCutoff = getIngestionCutoff();
+    // Incrémental : cutoff basé sur le dernier fetch (avec 1h de marge), fallback 720h
+    const safetyMarginMs = 60 * 60 * 1000;
+    const ingestionCutoff = source.last_fetched_at
+      ? new Date(new Date(source.last_fetched_at).getTime() - safetyMarginMs)
+      : getIngestionCutoff();
     const allItems = feed.items;
 
     const validItems = allItems.filter((item) => {
@@ -175,7 +189,8 @@ async function processSource(
     });
 
     const skippedCount = allItems.length - validItems.length;
-    log(`[INGEST] Source: ${source.name} - ${validItems.length} items to process (${skippedCount} older than ${PUBLICATION_RULES.INGESTION_MAX_AGE_HOURS}h)`);
+    const cutoffLabel = source.last_fetched_at ? 'last_fetch-1h' : `${PUBLICATION_RULES.INGESTION_MAX_AGE_HOURS}h`;
+    log(`[INGEST] Source: ${source.name} - ${validItems.length} items to process (${skippedCount} older than ${cutoffLabel})`);
 
     let totalAdded = 0;
 
