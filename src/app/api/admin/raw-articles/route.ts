@@ -17,7 +17,8 @@ export async function GET(request: Request) {
             .select('*', { count: 'exact' });
 
         if (search) {
-            query = query.or(`title.ilike.%${search}%,content.ilike.%${search}%`);
+            // Recherche uniquement dans le titre (ilike sur content timeout sur gros volumes)
+            query = query.ilike('title', `%${search}%`);
         }
 
         if (source && source !== 'all') {
