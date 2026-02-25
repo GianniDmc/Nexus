@@ -3,7 +3,6 @@ name: Cron Pipeline
 on:
   schedule:
     - cron: "17,47 * * * *"
-    - cron: "12 */2 * * *"
   workflow_dispatch:
     inputs:
       mode:
@@ -73,14 +72,10 @@ jobs:
         id: mode
         env:
           EVENT_NAME: ${{ github.event_name }}
-          EVENT_SCHEDULE: ${{ github.event.schedule }}
           INPUT_MODE: ${{ github.event.inputs.mode }}
         run: |
           set -euo pipefail
-          mode="process_only"
-          if [ "${EVENT_NAME}" = "schedule" ] && [ "${EVENT_SCHEDULE}" = "12 */2 * * *" ]; then
-            mode="ingest_then_process"
-          fi
+          mode="ingest_then_process"
           if [ "${EVENT_NAME}" = "workflow_dispatch" ] && [ -n "${INPUT_MODE:-}" ]; then
             mode="${INPUT_MODE}"
           fi
