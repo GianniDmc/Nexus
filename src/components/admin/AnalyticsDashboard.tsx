@@ -55,7 +55,7 @@ export function AnalyticsDashboard() {
 
     useEffect(() => {
         fetchAnalytics();
-        const interval = setInterval(fetchAnalytics, 30000); // Refresh every 30s
+        const interval = setInterval(fetchAnalytics, 120000); // Refresh every 2 min
         return () => clearInterval(interval);
     }, []);
 
@@ -112,7 +112,7 @@ export function AnalyticsDashboard() {
                         <CheckCircle className="w-4 h-4" /> Publiés
                     </div>
                     <div className="text-3xl font-serif text-green-500">{data.content.published.toLocaleString()}</div>
-                    <div className="text-xs text-muted mt-1">{((data.content.published / data.content.total) * 100).toFixed(1)}% du total</div>
+                    <div className="text-xs text-muted mt-1">{data.clusters.total > 0 ? ((data.content.published / data.clusters.total) * 100).toFixed(1) : '0.0'}% des clusters</div>
                 </div>
 
                 <div className="bg-card border border-border rounded-xl p-5">
@@ -120,7 +120,7 @@ export function AnalyticsDashboard() {
                         <Clock className="w-4 h-4" /> En Attente
                     </div>
                     <div className="text-3xl font-serif text-yellow-500">{data.content.pending.toLocaleString()}</div>
-                    <div className="text-xs text-muted mt-1">Score &gt; 5, non publiés</div>
+                    <div className="text-xs text-muted mt-1">Score ≥ 8, non publiés</div>
                 </div>
 
                 <div className="bg-card border border-border rounded-xl p-5">
@@ -290,7 +290,7 @@ export function AnalyticsDashboard() {
                 {/* Score Distribution */}
                 <div className="bg-card border border-border rounded-xl p-6">
                     <h3 className="text-sm font-bold uppercase tracking-wider text-primary mb-1">📊 Distribution des Scores</h3>
-                    <p className="text-[10px] text-muted-foreground mb-4">Répartition des scores de pertinence (0-10) attribués par l'IA. Les articles &gt;5 sont éligibles à la publication.</p>
+                    <p className="text-[10px] text-muted-foreground mb-4">Répartition des scores de pertinence (0-10) attribués par l'IA aux clusters des 30 derniers jours. Les clusters ≥ 8 sont éligibles à la publication.</p>
                     <div className="h-48">
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={data.scoreDistribution}>
@@ -334,7 +334,7 @@ export function AnalyticsDashboard() {
                     <div className="p-4 bg-secondary/20 rounded-lg">
                         <div className="text-xs text-muted mb-1">Taux de Publication</div>
                         <div className="font-medium text-green-500">
-                            {((data.content.published / data.content.total) * 100).toFixed(1)}%
+                            {data.clusters.total > 0 ? ((data.content.published / data.clusters.total) * 100).toFixed(1) : '0.0'}%
                         </div>
                     </div>
                     <div className="p-4 bg-secondary/20 rounded-lg">
