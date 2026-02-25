@@ -2,7 +2,7 @@ name: Cron Pipeline
 
 on:
   schedule:
-    - cron: "17,47 * * * *"
+    - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
       mode:
@@ -33,12 +33,12 @@ on:
       stage_max_execution_ms:
         description: "Per-step max execution in ms for ingest_then_process"
         required: false
-        default: "240000"
+        default: "480000"
         type: string
       max_cycles_per_step:
         description: "Max process cycles per step for ingest_then_process"
         required: false
-        default: "4"
+        default: "6"
         type: string
 
 concurrency:
@@ -214,7 +214,7 @@ jobs:
                 json_line="$(printf '%s\n' "${output}" | sed -n '/^[[:space:]]*{.*}[[:space:]]*$/p' | tail -n 1)"
               fi
 
-              processed="$(node -e 'const step = process.argv[1]; const raw = process.argv[2] || ""; let value = 0; try { const data = JSON.parse(raw); value = Number(data?.processed?.[step] ?? 0); if (!Number.isFinite(value)) value = 0; } catch {} process.stdout.write(String(Math.max(0, Math.trunc(value))));' "${step}" "${json_line}")"
+              processed="$(node -e 'const step = process.argv[1]; const raw = process.argv[2] || ""; let value = 0; try { const data = JSON.parse(raw); const statKey = step === "embedding" ? "embeddings" : step === "clustering" ? "clustered" : step === "scoring" ? "scored" : step === "rewriting" ? "rewritten" : step; value = Number(data?.processed?.[statKey] ?? 0); if (!Number.isFinite(value)) value = 0; } catch {} process.stdout.write(String(Math.max(0, Math.trunc(value))));' "${step}" "${json_line}")"
               stopped="$(node -e 'const raw = process.argv[1] || ""; let value = false; try { const data = JSON.parse(raw); value = !!data?.processed?.stopped; } catch {} process.stdout.write(value ? "true" : "false");' "${json_line}")"
               retry_after="$(node -e 'const raw = process.argv[1] || ""; let value = 0; try { const data = JSON.parse(raw); value = Number(data?.retryAfter ?? 0); if (!Number.isFinite(value)) value = 0; } catch {} process.stdout.write(String(Math.max(0, Math.trunc(value))));' "${json_line}")"
               success="$(node -e 'const raw = process.argv[1] || ""; let value = false; try { const data = JSON.parse(raw); value = !!data?.success; } catch {} process.stdout.write(value ? "true" : "false");' "${json_line}")"
@@ -255,5 +255,5 @@ jobs:
           PAID_GOOGLE_API_KEY: ${{ secrets.PAID_GOOGLE_API_KEY }}
           PROCESS_STEP: ${{ github.event.inputs.process_step || 'all' }}
           MAX_EXECUTION_MS: ${{ github.event.inputs.max_execution_ms || '1080000' }}
-          PER_STEP_MAX_EXECUTION_MS: ${{ github.event.inputs.stage_max_execution_ms || '240000' }}
-          MAX_CYCLES_PER_STEP: ${{ github.event.inputs.max_cycles_per_step || '4' }}
+          PER_STEP_MAX_EXECUTION_MS: ${{ github.event.inputs.stage_max_execution_ms || '480000' }}
+          MAX_CYCLES_PER_STEP: ${{ github.event.inputs.max_cycles_per_step || '6' }}
