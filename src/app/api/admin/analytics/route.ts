@@ -139,16 +139,14 @@ export async function GET() {
         let offset = 0;
         const pageSize = 1000;
         let hasMore = true;
-        const maxIngestionRows = 5000; // Cap pour éviter les lenteurs
 
-        while (hasMore && allIngestionArticles.length < maxIngestionRows) {
-            const batchSize = Math.min(pageSize, maxIngestionRows - allIngestionArticles.length);
+        while (hasMore) {
             const { data: batch, error: batchError } = await supabase
                 .from('articles')
                 .select('created_at, source_name')
                 .gte('created_at', thirtyDaysAgo.toISOString())
                 .order('created_at', { ascending: false })
-                .range(offset, offset + batchSize - 1);
+                .range(offset, offset + pageSize - 1);
 
             if (batchError) {
                 console.error('[Analytics] Pagination error:', batchError);
@@ -157,8 +155,8 @@ export async function GET() {
 
             if (batch && batch.length > 0) {
                 allIngestionArticles = allIngestionArticles.concat(batch);
-                offset += batchSize;
-                hasMore = batch.length === batchSize;
+                offset += pageSize;
+                hasMore = batch.length === pageSize;
             } else {
                 hasMore = false;
             }
