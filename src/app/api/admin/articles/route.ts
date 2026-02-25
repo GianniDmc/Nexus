@@ -104,36 +104,95 @@ export async function GET(request: Request) {
       : PUBLICATION_RULES.PUBLISH_THRESHOLD;
     const effectiveMinScore = Number.isFinite(minScore) ? minScore : PUBLICATION_RULES.PUBLISH_THRESHOLD;
 
-    // Full scan with pagination to avoid Supabase 1000 rows cap.
-    const pageSize = 1000;
-    const allRows: DbClusterRow[] = [];
-    let offset = 0;
-    let hasMore = true;
+    const selectFields = `
+      id,
+      label,
+      created_at,
+      final_score,
+      is_published,
+      image_url,
+      published_on,
+      articles:articles!articles_cluster_id_fkey(source_name, published_at),
+      summary:summaries!summaries_cluster_id_fkey(title, content_tldr, content_full)
+    `;
 
-    while (hasMore) {
+    // --------------- SQL pre-filter by editorial status ---------------
+    // Mirrors the editorial state machine to reduce data loaded from DB.
+    // The in-memory classifier still runs for exact metrics on the subset.
+    const buildQuery = (offset: number, pageSize: number) => {
       let query = supabase
         .from('clusters')
-        .select(
-          `
-            id,
-            label,
-            created_at,
-            final_score,
-            is_published,
-            image_url,
-            published_on,
-            articles:articles!articles_cluster_id_fkey(source_name, published_at),
-            summary:summaries!summaries_cluster_id_fkey(title, content_tldr, content_full)
-          `,
-          { count: 'estimated' }
-        )
+        .select(selectFields, { count: 'estimated' })
         .order('created_at', { ascending: false });
 
       if (search) {
         query = query.ilike('label', `%${search}%`);
       }
 
-      const { data: batch, error } = await query.range(offset, offset + pageSize - 1);
+      // Pré-filtre SQL selon l'état éditorial demandé
+      switch (status) {
+        case 'published':
+          query = query.eq('is_published', true);
+          break;
+        case 'eligible':
+        case 'eligible_rewriting':
+          // Score OK, pas publié — freshness/maturity/sources vérifiées en mémoire
+          query = query
+            .eq('is_published', false)
+            .gte('final_score', effectiveMinScore);
+          break;
+        case 'incubating':
+        case 'incubating_maturity':
+        case 'incubating_sources':
+        case 'incubating_maturity_sources':
+          // Score OK, pas publié — détail maturity vs sources vérifié en mémoire
+          query = query
+            .eq('is_published', false)
+            .gte('final_score', effectiveMinScore);
+          break;
+        case 'low_score':
+          query = query
+            .eq('is_published', false)
+            .not('final_score', 'is', null)
+            .lt('final_score', effectiveMinScore);
+          break;
+        case 'pending':
+        case 'pending_scoring':
+          query = query
+            .eq('is_published', false)
+            .is('final_score', null);
+          break;
+        case 'archived':
+          query = query
+            .eq('is_published', false)
+            .gte('final_score', effectiveMinScore);
+          break;
+        case 'anomalies':
+        case 'anomaly_empty':
+        case 'anomaly_summary_unpublished':
+        case 'ready':
+          // Anomalies / ready : pas publié, score OK
+          query = query
+            .eq('is_published', false)
+            .gte('final_score', effectiveMinScore);
+          break;
+        // 'all' → pas de pré-filtre
+      }
+
+      return query.range(offset, offset + pageSize - 1);
+    };
+
+    // Chargement paginé (1000 par batch côté DB)
+    // Pour 'all', on limite à 500 clusters max pour éviter les timeouts
+    const maxRows = status === 'all' ? 500 : Infinity;
+    const pageSize = 1000;
+    const allRows: DbClusterRow[] = [];
+    let offset = 0;
+    let hasMore = true;
+
+    while (hasMore && allRows.length < maxRows) {
+      const batchSize = Math.min(pageSize, maxRows - allRows.length);
+      const { data: batch, error } = await buildQuery(offset, batchSize);
       if (error) throw error;
 
       if (batch && batch.length > 0) {
@@ -182,10 +241,10 @@ export async function GET(request: Request) {
         final_score: cluster.final_score,
         summary_short: summaryRecord
           ? JSON.stringify({
-              title: summaryRecord.title,
-              tldr: summaryRecord.content_tldr,
-              full: summaryRecord.content_full,
-            })
+            title: summaryRecord.title,
+            tldr: summaryRecord.content_tldr,
+            full: summaryRecord.content_full,
+          })
           : null,
         cluster_size: classification.metrics.article_count,
         unique_sources: classification.metrics.unique_sources,
@@ -197,6 +256,7 @@ export async function GET(request: Request) {
       };
     });
 
+    // Affinage en mémoire : le pré-filtre SQL est large, la classification TS est exacte
     if (allowedStates) {
       const stateSet = new Set<string>(allowedStates);
       clusters = clusters.filter((cluster) => stateSet.has(cluster.editorial_state));
