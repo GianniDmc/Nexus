@@ -85,7 +85,18 @@ export async function runProcess(options: ProcessOptions = {}): Promise<ProcessR
   const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
   const startTime = Date.now();
-  const isTimeSafelyRemaining = () => Date.now() - startTime < maxExecutionMs;
+  let timeWarningLogged = false;
+  const isTimeSafelyRemaining = () => {
+    const elapsed = Date.now() - startTime;
+    if (elapsed >= maxExecutionMs) {
+      if (!timeWarningLogged) {
+        log(`[PROCESS] ⏱️ Time budget reached: ${Math.round(elapsed / 1000)}s / ${Math.round(maxExecutionMs / 1000)}s`);
+        timeWarningLogged = true;
+      }
+      return false;
+    }
+    return true;
+  };
 
   const context: ProcessExecutionContext = {
     supabase,
@@ -118,17 +129,24 @@ export async function runProcess(options: ProcessOptions = {}): Promise<ProcessR
       await runRewritingStep(context);
     }
 
+    const elapsedMs = Date.now() - startTime;
+    log(`[PROCESS] ✅ Step '${step}' ended. Elapsed: ${Math.round(elapsedMs / 1000)}s`);
+
     return {
       success: true,
       step,
+      elapsedMs,
       processed: results,
     };
   } catch (error: unknown) {
+    const elapsedMs = Date.now() - startTime;
     const message = error instanceof Error ? error.message : 'Unknown error';
+    log(`[PROCESS] ❌ Error in step '${step}' after ${Math.round(elapsedMs / 1000)}s: ${message}`);
+
     if (message.includes('429') || message.toLowerCase().includes('rate limit')) {
-      return { success: false, error: message, retryAfter: 30, step, processed: results };
+      return { success: false, error: message, retryAfter: 30, step, elapsedMs, processed: results };
     }
-    return { success: false, error: message, step, processed: results };
+    return { success: false, error: message, step, elapsedMs, processed: results };
   } finally {
     if (useProcessingState && lockAcquired) {
       await finishProcessing(runId);
