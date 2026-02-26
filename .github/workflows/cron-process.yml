@@ -218,8 +218,10 @@ jobs:
               stopped="$(node -e 'const raw = process.argv[1] || ""; let value = false; try { const data = JSON.parse(raw); value = !!data?.processed?.stopped; } catch {} process.stdout.write(value ? "true" : "false");' "${json_line}")"
               retry_after="$(node -e 'const raw = process.argv[1] || ""; let value = 0; try { const data = JSON.parse(raw); value = Number(data?.retryAfter ?? 0); if (!Number.isFinite(value)) value = 0; } catch {} process.stdout.write(String(Math.max(0, Math.trunc(value))));' "${json_line}")"
               success="$(node -e 'const raw = process.argv[1] || ""; let value = false; try { const data = JSON.parse(raw); value = !!data?.success; } catch {} process.stdout.write(value ? "true" : "false");' "${json_line}")"
+              elapsed_ms="$(node -e 'const raw = process.argv[1] || ""; let value = 0; try { const data = JSON.parse(raw); value = Number(data?.elapsedMs ?? 0); if (!Number.isFinite(value)) value = 0; } catch {} process.stdout.write(String(Math.max(0, Math.trunc(value))));' "${json_line}")"
+              elapsed_sec="$(node -e 'process.stdout.write((Number(process.argv[1]) / 1000).toFixed(1));' "${elapsed_ms}")"
 
-              echo "Step ${step} cycle ${cycle}: processed=${processed} stopped=${stopped} success=${success} retryAfter=${retry_after}"
+              echo "Step ${step} cycle ${cycle}: processed=${processed} stopped=${stopped} success=${success} retryAfter=${retry_after} elapsed=${elapsed_sec}s"
 
               if [ "${stopped}" = "true" ]; then
                 echo "Server stop requested. Ending staged process run."
