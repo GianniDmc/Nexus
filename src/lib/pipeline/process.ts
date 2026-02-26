@@ -86,6 +86,7 @@ export async function runProcess(options: ProcessOptions = {}): Promise<ProcessR
 
   const startTime = Date.now();
   let timeWarningLogged = false;
+  let timeBudgetReached = false;
   const isTimeSafelyRemaining = () => {
     const elapsed = Date.now() - startTime;
     if (elapsed >= maxExecutionMs) {
@@ -93,6 +94,7 @@ export async function runProcess(options: ProcessOptions = {}): Promise<ProcessR
         log(`[PROCESS] ⏱️ Time budget reached: ${Math.round(elapsed / 1000)}s / ${Math.round(maxExecutionMs / 1000)}s`);
         timeWarningLogged = true;
       }
+      timeBudgetReached = true;
       return false;
     }
     return true;
@@ -130,12 +132,13 @@ export async function runProcess(options: ProcessOptions = {}): Promise<ProcessR
     }
 
     const elapsedMs = Date.now() - startTime;
-    log(`[PROCESS] ✅ Step '${step}' ended. Elapsed: ${Math.round(elapsedMs / 1000)}s`);
+    log(`[PROCESS] ✅ Step '${step}' ended. Elapsed: ${Math.round(elapsedMs / 1000)}s${timeBudgetReached ? ' (Time Budget Reached)' : ''}`);
 
     return {
       success: true,
       step,
       elapsedMs,
+      timeBudgetReached,
       processed: results,
     };
   } catch (error: unknown) {
@@ -144,9 +147,9 @@ export async function runProcess(options: ProcessOptions = {}): Promise<ProcessR
     log(`[PROCESS] ❌ Error in step '${step}' after ${Math.round(elapsedMs / 1000)}s: ${message}`);
 
     if (message.includes('429') || message.toLowerCase().includes('rate limit')) {
-      return { success: false, error: message, retryAfter: 30, step, elapsedMs, processed: results };
+      return { success: false, error: message, retryAfter: 30, step, elapsedMs, timeBudgetReached, processed: results };
     }
-    return { success: false, error: message, step, elapsedMs, processed: results };
+    return { success: false, error: message, step, elapsedMs, timeBudgetReached, processed: results };
   } finally {
     if (useProcessingState && lockAcquired) {
       await finishProcessing(runId);

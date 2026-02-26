@@ -20,6 +20,7 @@ export interface ProcessResult {
   success: boolean;
   step: ProcessStep;
   elapsedMs?: number;
+  timeBudgetReached?: boolean;
   processed: {
     embeddings: number;
     clustered: number;

@@ -26,19 +26,9 @@ on:
           - scoring
           - rewriting
       max_execution_ms:
-        description: "Override process max execution in ms"
+        description: "Override global process max execution in ms (default 24 min)"
         required: false
-        default: "1080000"
-        type: string
-      stage_max_execution_ms:
-        description: "Per-step max execution in ms for ingest_then_process"
-        required: false
-        default: "480000"
-        type: string
-      max_cycles_per_step:
-        description: "Max process cycles per step for ingest_then_process"
-        required: false
-        default: "6"
+        default: "1440000"
         type: string
 
 concurrency:
@@ -193,59 +183,71 @@ jobs:
         if: steps.decide.outputs.should_process == 'true' && steps.mode.outputs.mode == 'ingest_then_process'
         run: |
           set -euo pipefail
-          per_step_max_ms="${PER_STEP_MAX_EXECUTION_MS:-240000}"
-          max_cycles_per_step="${MAX_CYCLES_PER_STEP:-4}"
-
-          if ! [[ "${per_step_max_ms}" =~ ^[0-9]+$ ]]; then
-            per_step_max_ms="240000"
-          fi
-          if ! [[ "${max_cycles_per_step}" =~ ^[0-9]+$ ]]; then
-            max_cycles_per_step="4"
-          fi
+          MAX_GLOBAL_MS="${MAX_EXECUTION_MS:-1440000}" 
+          GLOBAL_START_TIME=$(date +%s)
+          can_continue="true"
 
           for step in embedding clustering scoring rewriting; do
-            echo "== Drain step: ${step} (max_cycles=${max_cycles_per_step}, max_ms=${per_step_max_ms}) =="
-            cycle=1
-            while [ "${cycle}" -le "${max_cycles_per_step}" ]; do
-              output="$(QUIET_LOGS=1 PROCESS_STEP="${step}" MAX_EXECUTION_MS="${per_step_max_ms}" npm run -s cron:process)"
-              echo "${output}"
-              json_line="$(printf '%s\n' "${output}" | sed -n 's/.*__CRON_JSON__//p' | tail -n 1)"
-              if [ -z "${json_line}" ]; then
-                json_line="$(printf '%s\n' "${output}" | sed -n '/^[[:space:]]*{.*}[[:space:]]*$/p' | tail -n 1)"
-              fi
+            if [ "${can_continue}" = "false" ]; then
+              echo "== Skipping step: ${step} (prior step did not fully drain) =="
+              continue
+            fi
 
-              processed="$(node -e 'const step = process.argv[1]; const raw = process.argv[2] || ""; let value = 0; try { const data = JSON.parse(raw); const statKey = step === "embedding" ? "embeddings" : step === "clustering" ? "clustered" : step === "scoring" ? "scored" : step === "rewriting" ? "rewritten" : step; value = Number(data?.processed?.[statKey] ?? 0); if (!Number.isFinite(value)) value = 0; } catch {} process.stdout.write(String(Math.max(0, Math.trunc(value))));' "${step}" "${json_line}")"
-              stopped="$(node -e 'const raw = process.argv[1] || ""; let value = false; try { const data = JSON.parse(raw); value = !!data?.processed?.stopped; } catch {} process.stdout.write(value ? "true" : "false");' "${json_line}")"
-              retry_after="$(node -e 'const raw = process.argv[1] || ""; let value = 0; try { const data = JSON.parse(raw); value = Number(data?.retryAfter ?? 0); if (!Number.isFinite(value)) value = 0; } catch {} process.stdout.write(String(Math.max(0, Math.trunc(value))));' "${json_line}")"
-              success="$(node -e 'const raw = process.argv[1] || ""; let value = false; try { const data = JSON.parse(raw); value = !!data?.success; } catch {} process.stdout.write(value ? "true" : "false");' "${json_line}")"
-              elapsed_ms="$(node -e 'const raw = process.argv[1] || ""; let value = 0; try { const data = JSON.parse(raw); value = Number(data?.elapsedMs ?? 0); if (!Number.isFinite(value)) value = 0; } catch {} process.stdout.write(String(Math.max(0, Math.trunc(value))));' "${json_line}")"
-              elapsed_sec="$(node -e 'process.stdout.write((Number(process.argv[1]) / 1000).toFixed(1));' "${elapsed_ms}")"
+            now=$(date +%s)
+            elapsed_sec=$((now - GLOBAL_START_TIME))
+            remaining_sec=$((MAX_GLOBAL_MS / 1000 - elapsed_sec))
 
-              echo "Step ${step} cycle ${cycle}: processed=${processed} stopped=${stopped} success=${success} retryAfter=${retry_after} elapsed=${elapsed_sec}s"
+            if [ "$remaining_sec" -le 0 ]; then
+              echo "Global time budget reached. Stopping GHA gracefully."
+              exit 0
+            fi
 
-              if [ "${stopped}" = "true" ]; then
-                echo "Server stop requested. Ending staged process run."
-                exit 0
-              fi
+            computed_ms=$((remaining_sec * 1000))
+            echo "== Processing step: ${step} (remaining time budget: ${remaining_sec}s) =="
 
-              if ! [[ "${processed}" =~ ^[0-9]+$ ]]; then
-                processed="0"
-              fi
+            output="$(QUIET_LOGS=1 PROCESS_STEP="${step}" MAX_EXECUTION_MS="${computed_ms}" npm run -s cron:process)"
+            echo "${output}"
+            json_line="$(printf '%s\n' "${output}" | sed -n 's/.*__CRON_JSON__//p' | tail -n 1)"
+            if [ -z "${json_line}" ]; then
+              json_line="$(printf '%s\n' "${output}" | sed -n '/^[[:space:]]*{.*}[[:space:]]*$/p' | tail -n 1)"
+            fi
 
-              if [ "${success}" != "true" ] && [[ "${retry_after}" =~ ^[0-9]+$ ]] && [ "${retry_after}" -gt 0 ]; then
-                echo "Rate limit detected on step ${step}. Sleeping ${retry_after}s before retry."
-                sleep "${retry_after}"
-                cycle=$((cycle + 1))
-                continue
-              fi
+            processed="$(node -e 'const step = process.argv[1]; const raw = process.argv[2] || ""; let value = 0; try { const data = JSON.parse(raw); const statKey = step === "embedding" ? "embeddings" : step === "clustering" ? "clustered" : step === "scoring" ? "scored" : step === "rewriting" ? "rewritten" : step; value = Number(data?.processed?.[statKey] ?? 0); if (!Number.isFinite(value)) value = 0; } catch {} process.stdout.write(String(Math.max(0, Math.trunc(value))));' "${step}" "${json_line}")"
+            stopped="$(node -e 'const raw = process.argv[1] || ""; let value = false; try { const data = JSON.parse(raw); value = !!data?.processed?.stopped; } catch {} process.stdout.write(value ? "true" : "false");' "${json_line}")"
+            retry_after="$(node -e 'const raw = process.argv[1] || ""; let value = 0; try { const data = JSON.parse(raw); value = Number(data?.retryAfter ?? 0); if (!Number.isFinite(value)) value = 0; } catch {} process.stdout.write(String(Math.max(0, Math.trunc(value))));' "${json_line}")"
+            success="$(node -e 'const raw = process.argv[1] || ""; let value = false; try { const data = JSON.parse(raw); value = !!data?.success; } catch {} process.stdout.write(value ? "true" : "false");' "${json_line}")"
+            elapsed_ms="$(node -e 'const raw = process.argv[1] || ""; let value = 0; try { const data = JSON.parse(raw); value = Number(data?.elapsedMs ?? 0); if (!Number.isFinite(value)) value = 0; } catch {} process.stdout.write(String(Math.max(0, Math.trunc(value))));' "${json_line}")"
+            elapsed_sec="$(node -e 'process.stdout.write((Number(process.argv[1]) / 1000).toFixed(1));' "${elapsed_ms}")"
+            time_budget_reached="$(node -e 'const raw = process.argv[1] || ""; let value = false; try { const data = JSON.parse(raw); value = !!data?.timeBudgetReached; } catch {} process.stdout.write(value ? "true" : "false");' "${json_line}")"
 
-              if [ "${processed}" -eq 0 ]; then
-                echo "Step ${step} drained."
-                break
-              fi
+            echo "Step ${step}: processed=${processed} stopped=${stopped} success=${success} retryAfter=${retry_after} budgetReached=${time_budget_reached} elapsed=${elapsed_sec}s"
 
-              cycle=$((cycle + 1))
-            done
+            if [ "${stopped}" = "true" ]; then
+              echo "Server manual stop requested. Ending staged process run."
+              exit 0
+            fi
+
+            if ! [[ "${processed}" =~ ^[0-9]+$ ]]; then
+              processed="0"
+            fi
+
+            if [ "${success}" != "true" ] && [[ "${retry_after}" =~ ^[0-9]+$ ]] && [ "${retry_after}" -gt 0 ]; then
+               echo "Rate limit detected. Note: single-cycle refactor skips inline retries. Will retry on next cron."
+               can_continue="false"
+               continue
+            fi
+
+            if [ "${time_budget_reached}" = "true" ]; then
+               echo "Step ${step} reached time budget. Not fully drained. Next steps will be skipped."
+               can_continue="false"
+            else
+               if [ "${processed}" -gt 0 ]; then
+                 echo "Step ${step} completely drained (${processed} items processed)."
+               else
+                 echo "Step ${step} already empty (0 items processed)."
+               fi
+            fi
+
           done
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
@@ -256,6 +258,4 @@ jobs:
           PAID_ANTHROPIC_API_KEY: ${{ secrets.PAID_ANTHROPIC_API_KEY }}
           PAID_GOOGLE_API_KEY: ${{ secrets.PAID_GOOGLE_API_KEY }}
           PROCESS_STEP: ${{ github.event.inputs.process_step || 'all' }}
-          MAX_EXECUTION_MS: ${{ github.event.inputs.max_execution_ms || '1080000' }}
-          PER_STEP_MAX_EXECUTION_MS: ${{ github.event.inputs.stage_max_execution_ms || '480000' }}
-          MAX_CYCLES_PER_STEP: ${{ github.event.inputs.max_cycles_per_step || '6' }}
+          MAX_EXECUTION_MS: ${{ github.event.inputs.max_execution_ms || '1440000' }}

@@ -42,7 +42,6 @@ export async function runScoringStep(context: ProcessExecutionContext): Promise<
         break;
       }
       if (!context.isTimeSafelyRemaining()) {
-        results.stopped = true;
         break;
       }
 

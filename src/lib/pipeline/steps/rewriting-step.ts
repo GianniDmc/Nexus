@@ -223,7 +223,6 @@ export async function runRewritingStep(context: ProcessExecutionContext): Promis
         break;
       }
       if (!context.isTimeSafelyRemaining()) {
-        results.stopped = true;
         break;
       }
 

@@ -27,7 +27,6 @@ export async function runEmbeddingStep(context: ProcessExecutionContext): Promis
         break;
       }
       if (!context.isTimeSafelyRemaining()) {
-        results.stopped = true;
         break;
       }
 

@@ -79,7 +79,7 @@ const PROCESS_PROFILE_DEFAULTS: Record<ExecutionProfile, ProcessProfileDefaults>
     llmDelayPaidMs: 200,
   },
   gha: {
-    maxExecutionMs: 1080000,
+    maxExecutionMs: 1440000, // 24 minutes max per standard single-run to prevent 30m GHA kill
     useProcessingState: true,
     processingLimitFree: 24,
     processingLimitPaid: 100,
