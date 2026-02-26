@@ -40,7 +40,6 @@ export async function runClusteringStep(context: ProcessExecutionContext): Promi
         break;
       }
       if (!context.isTimeSafelyRemaining()) {
-        results.stopped = true;
         break;
       }
 
