@@ -31,7 +31,7 @@ Ce document recense les améliorations techniques et fonctionnelles prévues pou
 - [x] **Alignement Editorial/Process/Stats** : classifier éditorial unifié (`editorial-state`), tabs exclusives (maturité vs sources), maturité basée sur le premier article, et dashboard avec décomposition + deltas de réconciliation.
 - [x] **Execution Policy centralisée** : profils runtime `api/manual/refresh/gha` pour ingest + process, avec bornes de sécurité sur overrides.
 - [x] **Pipeline Process modulaire** : refactor `process.ts` en orchestrateur + étapes dédiées (`embedding`, `clustering`, `scoring`, `rewriting`) avec contexte/types partagés.
-- [x] **Tuning GitHub Actions** : `cron-process` ajusté à `MAX_EXECUTION_MS=1080000` (18 min budget process) et timeout workflow 30 min.
+- [x] **Tuning GitHub Actions** : Simplification cron avec budget global dynamique `MAX_EXECUTION_MS=1440000` (24 minutes) et isolation stricte du drain (les étapes suivantes sont skippées si la précédente bloque).
 
 ## 🔮 Améliorations Futures (Backlog)
 

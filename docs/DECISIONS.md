@@ -38,6 +38,7 @@ Ce document consigne les choix techniques structurants du projet **App Curation 
 | ADR-030 | 2026-02-11 | Source unique de vérité éditoriale + réconciliation des métriques | Validé |
 | ADR-031 | 2026-02-11 | Profils d'exécution centralisés + process modulaire | Validé |
 | ADR-032 | 2026-02-24 | Ingest incrémental + skip_scrape configurable | Validé |
+| ADR-033 | 2026-02-26 | Simplification Pipeline Cron (Budget Global) | Validé |
 
 ---
 
@@ -702,3 +703,25 @@ L'ingest comparait chaque article RSS à un cutoff statique de 720h, re-traitant
 ### Conséquences
 - **Positif** : Ingest plus rapide (moins d'articles à traiter), 0 erreurs 403 pour les sources bloquées, recherche CMS fiable.
 - **Négatif** : Les sources `skip_scrape` n'ont pas d'image og:image ni de contenu enrichi (RSS only), mais suffisant pour le clustering.
+
+---
+
+## ADR-033 : Simplification Pipeline Cron (Budget Global)
+
+### Contexte
+Le pipeline de process GitHub Actions utilisait un système complexe de boucles bash avec des quotas alloués par étape (`PER_STEP_MAX_EXECUTION_MS`) et des cycles maximaux (`MAX_CYCLES_PER_STEP`). Cela causait des redémarrages Node.js superflus et rendait obscur le suivi du temps sur les 30 minutes autorisées par GitHub.
+
+### Décision
+1. **Suppression des micro-cycles Bash** : Les étapes (`embedding`, `clustering`, `scoring`, `rewriting`) sont appelées une et une seule fois par le cron.
+2. **Budget Global Dynamique** : Une limite globale de 24 minutes (`1440000 ms`) est calculée. Avant l'exécution de chaque étape, le bash soustrait le temps déjà écoulé et passe à Node dynamiquement le "budget restant".
+3. **Drainage Garanti** : La boucle interne dans le script Node (qui fetch par chunk de 100/200 items) vide entièrement la DB pour l'étape en cours, à moins d'atteindre le time budget restant.
+4. **Intégrité Éditoriale (Cascading Skip)** : Si une étape atteint son time budget avant d'avoir vidé son backlog (`drained=false`), le bash saute intentionnellement toutes les étapes suivantes pour garantir que les calculs de consensus ou synthèses prennent en compte tout l'historique en souffrance.
+
+### Fichiers impactés
+- `.github/workflows/cron-process.yml`
+- `src/lib/pipeline/process.ts`
+- `src/lib/pipeline/execution-policy.ts`
+
+### Conséquences
+- **Positif** : Code bash beaucoup plus clair. Exploitation optimale du conteneur GHA jusqu'à 24 minutes sans boots Node inutiles. Respect parfait de la chronologie éditoriale.
+- **Négatif** : Un pipeline "en retard" (ex: trop d'embeddings) bloquera entièrement les synthèses finales pendant ce cycle, repoussant la publication au quart d'heure suivant. C'est assumé comme un gage de qualité.
