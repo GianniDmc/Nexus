@@ -205,14 +205,13 @@ Des scripts Node.js (`scripts/`) servent aux audits et migrations ponctuelles :
 - **cron-process.ts** : Point d'entrée standalone pour le pipeline IA (GitHub Actions).
 
 ## 9. Automatisation (GitHub Actions)
-Les jobs de cron sont externalisés dans `.github/workflows/` pour éviter les limites Vercel (timeout 300s) :
 - **cron-process.yml** : Orchestrateur principal.
   - `17,47 * * * *` : tick `process_only`.
   - `12 */2 * * *` : tick `ingest_then_process`.
   - Pre-check backlog en `process_only` (`cron:should-process`) pour éviter les exécutions vides.
   - Skip du process sur le tick ingest si `articlesIngested = 0`.
-  - Sur `ingest_then_process`, drain par étapes (`embedding` → `clustering` → `scoring` → `rewriting`) avec boucles bornées.
-  - `MAX_EXECUTION_MS=1080000`, timeout workflow 30min.
+  - Sur `ingest_then_process`, drain par étapes absolu (`embedding` → `clustering` → `scoring` → `rewriting`).
+  - Budget global unifié `MAX_EXECUTION_MS=1440000` (24min). Node gère seul le timeout si le drain prend trop de temps.
 - **cron-ingest.yml** : lancement manuel uniquement (`workflow_dispatch`) pour debug.
 
 Les scripts utilisent `dotenv` pour charger `.env.local` en développement local, mais reçoivent les secrets via `secrets.*` en CI.
