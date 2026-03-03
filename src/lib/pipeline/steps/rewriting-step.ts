@@ -216,8 +216,30 @@ export async function runRewritingStep(context: ProcessExecutionContext): Promis
     log(`[REWRITE] Found ${eligibleClusterIds.length} eligible clusters ready for rewriting.`);
     await context.updateProgress(results.rewritten, -1, 'Démarrage rédaction batch...');
 
+    // Batch fetch: charger tous les articles des clusters éligibles en une seule requête
+    const { data: allClusterArticles } = await supabase
+      .from('articles')
+      .select('cluster_id, title, content, source_name, id, final_score, image_url')
+      .in('cluster_id', eligibleClusterIds)
+      .order('final_score', { ascending: false });
+
+    type ClusterArticle = NonNullable<typeof allClusterArticles>[number];
+    const sourcesByCluster: Record<string, ClusterArticle[]> = {};
+    if (allClusterArticles) {
+      for (const article of allClusterArticles) {
+        const cid = article.cluster_id;
+        if (!cid) continue;
+        if (!sourcesByCluster[cid]) {
+          sourcesByCluster[cid] = [];
+        }
+        sourcesByCluster[cid].push(article);
+      }
+    }
+
     let processedInBatch = 0;
-    for (const clusterId of eligibleClusterIds) {
+    const REWRITE_CONCURRENCY = 2;
+
+    for (let i = 0; i < eligibleClusterIds.length; i += REWRITE_CONCURRENCY) {
       if (await context.shouldStop()) {
         results.stopped = true;
         break;
@@ -226,76 +248,76 @@ export async function runRewritingStep(context: ProcessExecutionContext): Promis
         break;
       }
 
+      const batch = eligibleClusterIds.slice(i, i + REWRITE_CONCURRENCY);
       await context.updateProgress(results.rewritten, -1, `Rédaction: ${results.rewritten} publiés...`);
-      log(`[REWRITE] Processing cluster ${clusterId.slice(0, 8)}...`);
 
-      const { data: sources } = await supabase
-        .from('articles')
-        .select('title, content, source_name')
-        .eq('cluster_id', clusterId)
-        .order('final_score', { ascending: false });
+      const batchResults = await Promise.allSettled(
+        batch.map(async (clusterId) => {
+          const sources = sourcesByCluster[clusterId] || [];
+          log(`[REWRITE] Processing cluster ${clusterId.slice(0, 8)} (${sources.length} sources)...`);
 
-      log(`[REWRITE] Cluster ${clusterId.slice(0, 8)} has ${sources?.length || 0} sources`);
+          if (sources.length === 0) return false;
 
-      if (sources && sources.length > 0) {
-        let rewritten = null;
-        try {
-          log(`[REWRITE] Calling rewriteArticle for cluster ${clusterId.slice(0, 8)}...`);
-          rewritten = await rewriteArticle(sources, effectiveConfig);
-          log(`[REWRITE] rewriteArticle returned: ${rewritten ? 'success' : 'null'}`);
-        } catch (error) {
-          log(`[REWRITE ERROR] Exception during rewriteArticle: ${error}`);
-        }
-
-        if (rewritten && rewritten.title && rewritten.content && rewritten.title.length > 5 && rewritten.content.length > 50) {
-          const { data: topArticle } = await supabase
-            .from('articles')
-            .select('id, final_score, title, image_url')
-            .eq('cluster_id', clusterId)
-            .order('final_score', { ascending: false })
-            .limit(1)
-            .single();
-
-          if (topArticle) {
-            const { error: insertError } = await supabase
-              .from('summaries')
-              .upsert(
-                {
-                  cluster_id: clusterId,
-                  title: rewritten.title,
-                  content_tldr: rewritten.tldr,
-                  content_analysis: rewritten.impact,
-                  content_full: rewritten.content,
-                  image_url: topArticle.image_url,
-                  source_count: sources.length,
-                  model_name: effectiveConfig?.preferredProvider || 'auto',
-                },
-                { onConflict: 'cluster_id' }
-              );
-
-            if (!insertError) {
-              await supabase
-                .from('clusters')
-                .update({
-                  is_published: true,
-                  last_processed_at: new Date().toISOString(),
-                  published_on: new Date().toISOString(),
-                  label: rewritten.title,
-                  image_url: topArticle.image_url,
-                  category: rewritten.category,
-                })
-                .eq('id', clusterId);
-
-              results.rewritten++;
-              processedInBatch++;
-            }
+          let rewritten = null;
+          try {
+            log(`[REWRITE] Calling rewriteArticle for cluster ${clusterId.slice(0, 8)}...`);
+            rewritten = await rewriteArticle(sources, effectiveConfig);
+            log(`[REWRITE] rewriteArticle returned: ${rewritten ? 'success' : 'null'}`);
+          } catch (error) {
+            log(`[REWRITE ERROR] Exception during rewriteArticle: ${error}`);
           }
-        } else {
-          log(`[REWRITE INVALID] Content invalid or empty for cluster ${clusterId}. Skipping publication.`);
-        }
 
-        await context.sleep(llmDelayMs);
+          if (rewritten && rewritten.title && rewritten.content && rewritten.title.length > 5 && rewritten.content.length > 50) {
+            const topArticle = sources[0]; // Déjà trié par final_score desc
+
+            if (topArticle) {
+              const { error: insertError } = await supabase
+                .from('summaries')
+                .upsert(
+                  {
+                    cluster_id: clusterId,
+                    title: rewritten.title,
+                    content_tldr: rewritten.tldr,
+                    content_analysis: rewritten.impact,
+                    content_full: rewritten.content,
+                    image_url: topArticle.image_url,
+                    source_count: sources.length,
+                    model_name: effectiveConfig?.preferredProvider || 'auto',
+                  },
+                  { onConflict: 'cluster_id' }
+                );
+
+              if (!insertError) {
+                await supabase
+                  .from('clusters')
+                  .update({
+                    is_published: true,
+                    last_processed_at: new Date().toISOString(),
+                    published_on: new Date().toISOString(),
+                    label: rewritten.title,
+                    image_url: topArticle.image_url,
+                    category: rewritten.category,
+                  })
+                  .eq('id', clusterId);
+
+                return true;
+              }
+            }
+          } else {
+            log(`[REWRITE INVALID] Content invalid or empty for cluster ${clusterId}. Skipping publication.`);
+          }
+          return false;
+        })
+      );
+
+      for (const result of batchResults) {
+        if (result.status === 'fulfilled' && result.value) {
+          results.rewritten++;
+          processedInBatch++;
+        }
       }
+
+      await context.sleep(llmDelayMs);
     }
 
     if (processedInBatch === 0) break;

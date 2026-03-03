@@ -36,7 +36,9 @@ export async function runScoringStep(context: ProcessExecutionContext): Promise<
     await context.updateProgress(results.scored, -1, `Scoring: ${results.scored} traités...`);
 
     let processedInBatch = 0;
-    for (const cluster of clustersToScore) {
+    const SCORE_CONCURRENCY = 3;
+
+    for (let i = 0; i < clustersToScore.length; i += SCORE_CONCURRENCY) {
       if (await context.shouldStop()) {
         results.stopped = true;
         break;
@@ -45,25 +47,38 @@ export async function runScoringStep(context: ProcessExecutionContext): Promise<
         break;
       }
 
-      const articles = (Array.isArray(cluster.articles) ? cluster.articles : []) as ClusterArticle[];
+      const batch = clustersToScore.slice(i, i + SCORE_CONCURRENCY);
 
-      if (articles.length === 0) {
-        await supabase.from('clusters').update({ final_score: 0 }).eq('id', cluster.id);
-        continue;
+      const batchResults = await Promise.allSettled(
+        batch.map(async (cluster) => {
+          const articles = (Array.isArray(cluster.articles) ? cluster.articles : []) as ClusterArticle[];
+
+          if (articles.length === 0) {
+            await supabase.from('clusters').update({ final_score: 0 }).eq('id', cluster.id);
+            return false;
+          }
+
+          const evaluation = await scoreCluster(articles, effectiveConfig);
+
+          await supabase
+            .from('clusters')
+            .update({
+              final_score: evaluation.score,
+              representative_article_id: evaluation.representative_id,
+            })
+            .eq('id', cluster.id);
+
+          return true;
+        })
+      );
+
+      for (const result of batchResults) {
+        if (result.status === 'fulfilled' && result.value) {
+          results.scored++;
+          processedInBatch++;
+        }
       }
 
-      const evaluation = await scoreCluster(articles, effectiveConfig);
-
-      await supabase
-        .from('clusters')
-        .update({
-          final_score: evaluation.score,
-          representative_article_id: evaluation.representative_id,
-        })
-        .eq('id', cluster.id);
-
-      results.scored++;
-      processedInBatch++;
       await context.sleep(llmDelayMs);
     }
 
