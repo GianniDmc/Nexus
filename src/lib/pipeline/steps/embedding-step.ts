@@ -2,7 +2,7 @@ import { generateEmbedding } from '../../ai';
 import type { ProcessExecutionContext } from '../process-context';
 
 export async function runEmbeddingStep(context: ProcessExecutionContext): Promise<void> {
-  const { supabase, effectiveConfig, processingLimit, results, log } = context;
+  const { supabase, effectiveConfig, processingLimit, llmDelayMs, results, log } = context;
 
   while (context.isTimeSafelyRemaining() && !results.stopped) {
     const { data: needsEmbedding } = await supabase
@@ -42,6 +42,8 @@ export async function runEmbeddingStep(context: ProcessExecutionContext): Promis
             results.embeddings++;
             processedInBatch++;
           }
+          // Protection rate-limit : delay réduit entre chaque appel embedding
+          await context.sleep(Math.floor(llmDelayMs / 2));
         }
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
