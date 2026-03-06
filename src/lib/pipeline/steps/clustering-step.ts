@@ -1,5 +1,59 @@
 import type { ProcessExecutionContext } from '../process-context';
 
+// Seuil de cohérence pour rejoindre un cluster existant.
+// Plus élevé que le seuil de recherche (0.75) pour éviter la transitivité :
+// un article doit être fortement similaire à au moins un article du cluster cible.
+const CLUSTER_COHERENCE_THRESHOLD = 0.80;
+
+type SimilarMatch = {
+  id: string;
+  similarity: number;
+  cluster_id: string | null;
+};
+
+// Sélection du meilleur cluster parmi les matches similaires.
+// Groupe par cluster, retient celui avec la meilleure similarité max,
+// départagé par le nombre de matches dans ce cluster.
+function selectBestCluster(matchRows: SimilarMatch[]): { clusterId: string; bestSimilarity: number } | null {
+  const clusterMap = new Map<string, { bestSimilarity: number; matchCount: number }>();
+
+  for (const match of matchRows) {
+    if (!match.cluster_id) continue;
+
+    const entry = clusterMap.get(match.cluster_id);
+    if (entry) {
+      entry.bestSimilarity = Math.max(entry.bestSimilarity, match.similarity);
+      entry.matchCount++;
+    } else {
+      clusterMap.set(match.cluster_id, {
+        bestSimilarity: match.similarity,
+        matchCount: 1,
+      });
+    }
+  }
+
+  // Filtrer les clusters dont la meilleure similarité dépasse le seuil de cohérence
+  let bestClusterId: string | null = null;
+  let bestScore = -1;
+  let bestCount = 0;
+
+  for (const [clusterId, entry] of clusterMap) {
+    if (entry.bestSimilarity < CLUSTER_COHERENCE_THRESHOLD) continue;
+
+    // Départage : meilleure similarité d'abord, puis nombre de matches
+    if (
+      entry.bestSimilarity > bestScore ||
+      (entry.bestSimilarity === bestScore && entry.matchCount > bestCount)
+    ) {
+      bestClusterId = clusterId;
+      bestScore = entry.bestSimilarity;
+      bestCount = entry.matchCount;
+    }
+  }
+
+  return bestClusterId ? { clusterId: bestClusterId, bestSimilarity: bestScore } : null;
+}
+
 // Helper: Normalize Source Category to AI Category
 function normalizeCategory(sourceCategory: string | null): string {
   if (!sourceCategory) return 'Général';
@@ -15,7 +69,6 @@ function normalizeCategory(sourceCategory: string | null): string {
 
 export async function runClusteringStep(context: ProcessExecutionContext): Promise<void> {
   const { supabase, processingLimit, results, log } = context;
-  type SimilarMatch = { cluster_id: string | null };
 
   while (context.isTimeSafelyRemaining() && !results.stopped) {
     const { data: needsClustering } = await supabase
@@ -53,11 +106,12 @@ export async function runClusteringStep(context: ProcessExecutionContext): Promi
       });
 
       const matchRows = Array.isArray(matches) ? (matches as SimilarMatch[]) : [];
-      const bestMatchWithCluster = matchRows.find((match) => match.cluster_id);
+      const bestCluster = selectBestCluster(matchRows);
 
-      if (bestMatchWithCluster) {
-        await supabase.from('articles').update({ cluster_id: bestMatchWithCluster.cluster_id }).eq('id', article.id);
+      if (bestCluster) {
+        await supabase.from('articles').update({ cluster_id: bestCluster.clusterId }).eq('id', article.id);
       } else {
+        // Aucun cluster existant ne dépasse le seuil de cohérence → nouveau cluster
         const { data: newCluster } = await supabase
           .from('clusters')
           .insert({

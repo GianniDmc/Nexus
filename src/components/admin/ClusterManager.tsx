@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { GitBranch, ChevronDown, ChevronRight, Loader2, FlaskConical, CheckCircle, ExternalLink, Search, Filter, ChevronLeft, ListOrdered } from 'lucide-react';
+import { GitBranch, ChevronDown, ChevronRight, Loader2, FlaskConical, CheckCircle, ExternalLink, Search, Filter, ChevronLeft, ListOrdered, Map as MapIcon } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import ClusterMapTab from './ClusterMapTab';
 
 interface Cluster {
     id: string;
@@ -38,7 +39,7 @@ interface Match {
     published_at: string;
     similarity: number;
     cluster: Cluster | null;
-    matchType?: 'valid' | 'weak';
+    matchType?: 'valid' | 'weak' | 'below';
 }
 
 // Sub-component for searchable article selection
@@ -166,6 +167,9 @@ export function ClusterManager() {
     const [clusterArticles, setClusterArticles] = useState<Article[]>([]);
     const [loadingClusterArticles, setLoadingClusterArticles] = useState(false);
 
+    // Tab state
+    const [activeTab, setActiveTab] = useState<'management' | 'map'>('management');
+
     // Similarity tester state
     const [selectedArticle1, setSelectedArticle1] = useState<Article | null>(null);
     const [testingSimlarity, setTestingSimilarity] = useState(false);
@@ -257,333 +261,366 @@ export function ClusterManager() {
 
     return (
         <div className="space-y-8">
-            {/* Clustering Simulation */}
-            <div className="bg-card border border-border rounded-xl p-6">
-                <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
-                    <FlaskConical className="w-5 h-5 text-accent" />
-                    Simulation de Clustering
-                </h2>
-                <p className="text-sm text-muted mb-6">
-                    Sélectionnez un article pour voir comment le moteur de clustering le traiterait (rejoint un cluster existant ou en crée un nouveau).
-                    <br />
-                    <span className="text-xs italic opacity-70">
-                        Règles : Seuil 75% | Fenêtre 7 jours | Priorité aux clusters existants
-                    </span>
-                </p>
-
-                <div className="max-w-xl mb-4">
-                    <ArticleSearch
-                        label="Article à tester"
-                        value={selectedArticle1}
-                        onChange={setSelectedArticle1}
-                    />
-                </div>
-
+            <div className="flex border-b border-border">
                 <button
-                    onClick={simulateClustering}
-                    disabled={!selectedArticle1 || testingSimlarity}
-                    className="px-6 py-2 bg-accent text-white rounded-lg font-bold text-sm disabled:opacity-50 flex items-center gap-2"
+                    onClick={() => setActiveTab('management')}
+                    className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'management'
+                        ? 'border-accent text-accent'
+                        : 'border-transparent text-muted-foreground hover:text-foreground'
+                        }`}
                 >
-                    {testingSimlarity ? <Loader2 className="w-4 h-4 animate-spin" /> : <FlaskConical className="w-4 h-4" />}
-                    Simuler le Clustering
-                </button>
-
-                {simulationResult && (
-                    <div className="mt-6 space-y-4">
-                        {/* Decision Banner */}
-                        <div className={`p-4 rounded-lg border ${simulationResult.decision === 'JOIN_EXISTING'
-                            ? 'bg-green-500/10 border-green-500/50'
-                            : 'bg-blue-500/10 border-blue-500/50'
-                            }`}>
-                            <div className="flex items-center gap-3 mb-1">
-                                {simulationResult.decision === 'JOIN_EXISTING' ? (
-                                    <CheckCircle className="w-6 h-6 text-green-500" />
-                                ) : (
-                                    <GitBranch className="w-6 h-6 text-blue-500" />
-                                )}
-                                <span className={`text-lg font-bold ${simulationResult.decision === 'JOIN_EXISTING' ? 'text-green-500' : 'text-blue-500'
-                                    }`}>
-                                    {simulationResult.decision === 'JOIN_EXISTING'
-                                        ? 'Rejoint un cluster existant'
-                                        : 'Crée un NOUVEAU cluster'}
-                                </span>
-                            </div>
-
-                            {simulationResult.targetCluster && (
-                                <div className="ml-9 text-sm">
-                                    <div className="flex items-center gap-2">
-                                        <span>Rejoint le cluster : <span className="font-bold">{simulationResult.targetCluster.label}</span></span>
-                                        <span className="text-muted text-xs">({simulationResult.targetCluster.article_count} articles)</span>
-                                    </div>
-
-                                    {simulationResult.targetCluster.previewArticles && (
-                                        <details className="mt-2 text-xs">
-                                            <summary className="cursor-pointer text-muted hover:text-foreground transition-colors font-medium select-none flex items-center gap-1 w-fit">
-                                                <ChevronRight className="w-3 h-3 transition-transform group-open:rotate-90" />
-                                                Voir les articles de ce cluster
-                                            </summary>
-                                            <div className="mt-2 pl-4 space-y-1 border-l-2 border-border/50">
-                                                {simulationResult.targetCluster.previewArticles.map((a) => (
-                                                    <div key={a.id} className="flex items-center gap-2 py-1">
-                                                        <ExternalLink className="w-3 h-3 text-muted shrink-0" />
-                                                        <span className="truncate opacity-80" title={a.title}>{a.title}</span>
-                                                        <span className="text-[10px] text-muted font-mono whitespace-nowrap ml-auto">
-                                                            {a.published_at ? formatDistanceToNow(new Date(a.published_at), { addSuffix: true, locale: fr }) : ''}
-                                                        </span>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </details>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Matches Table */}
-                        <div className="bg-secondary/20 rounded-lg p-4 border border-border">
-                            <h3 className="text-sm font-bold text-muted mb-3 uppercase tracking-wide">
-                                Articles Similaires Trouvés ({simulationResult.matches?.length || 0})
-                            </h3>
-
-                            {(!simulationResult.matches || simulationResult.matches.length === 0) ? (
-                                <p className="text-sm text-muted italic">Aucun article similaire trouvé (&gt; 50%) dans les 7 derniers jours.</p>
-                            ) : (
-                                <div className="space-y-2">
-                                    {simulationResult.matches.map((match: Match) => {
-                                        const isWeak = match.matchType === 'weak' || match.similarity < 0.75;
-                                        const isTarget = simulationResult.targetCluster && match.cluster?.id === simulationResult.targetCluster.id;
-                                        return (
-                                            <div
-                                                key={match.id}
-                                                className={`p-3 rounded border flex items-center justify-between text-sm ${isTarget
-                                                    ? 'bg-accent/5 border-accent/30 ring-1 ring-accent/20'
-                                                    : isWeak
-                                                        ? 'bg-secondary/30 border-border/30 opacity-75'
-                                                        : 'bg-card border-border/50 shadow-sm'
-                                                    }`}
-                                            >
-                                                <div className="flex-1 min-w-0 pr-4">
-                                                    <div className="flex items-center gap-2">
-                                                        <div className="font-medium truncate">
-                                                            {match.title}
-                                                        </div>
-                                                        {isTarget && (
-                                                            <span className="text-[10px] bg-accent text-white px-1.5 py-0.5 rounded font-bold uppercase tracking-wider shadow-sm">
-                                                                Cible
-                                                            </span>
-                                                        )}
-                                                        {isWeak && (
-                                                            <span className="text-[10px] bg-red-500/10 text-red-500 px-1.5 py-0.5 rounded border border-red-500/20 uppercase font-bold tracking-wider">
-                                                                Faible
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                    <div className="flex items-center gap-2 mt-1">
-                                                        <span className="text-xs text-muted">{formatDistanceToNow(new Date(match.published_at), { addSuffix: true, locale: fr })}</span>
-                                                        {match.cluster ? (
-                                                            <span className="text-[10px] bg-accent/10 text-accent px-1.5 py-0.5 rounded border border-accent/20">
-                                                                Cluster: {match.cluster.label}
-                                                            </span>
-                                                        ) : (
-                                                            <span className="text-[10px] bg-secondary text-muted px-1.5 py-0.5 rounded">
-                                                                Sans cluster
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                                <div className="shrink-0 text-right">
-                                                    <div className={`font-mono font-bold ${getScoreColor(match.similarity)}`}>
-                                                        {(match.similarity * 100).toFixed(1)}%
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            )}
-                        </div>
-
-
-                        {/* Old location removed */}
+                    <div className="flex items-center gap-2">
+                        <ListOrdered className="w-4 h-4" />
+                        Gestion & Simulation
                     </div>
-                )}
+                </button>
+                <button
+                    onClick={() => setActiveTab('map')}
+                    className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'map'
+                        ? 'border-accent text-accent'
+                        : 'border-transparent text-muted-foreground hover:text-foreground'
+                        }`}
+                >
+                    <div className="flex items-center gap-2">
+                        <MapIcon className="w-4 h-4" />
+                        Cartographie Mentale
+                    </div>
+                </button>
             </div>
 
-            {/* Clusters List */}
-            <div className="bg-card border border-border rounded-xl p-6">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-                    <div>
-                        <h2 className="text-lg font-bold flex items-center gap-2">
-                            <GitBranch className="w-5 h-5 text-accent" />
-                            Clusters ({totalClusters})
+            {activeTab === 'map' ? (
+                <ClusterMapTab />
+            ) : (
+                <>
+                    {/* Clustering Simulation */}
+                    <div className="bg-card border border-border rounded-xl p-6">
+                        <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
+                            <FlaskConical className="w-5 h-5 text-accent" />
+                            Simulation de Clustering
                         </h2>
-                        <p className="text-xs text-muted">Gestion dynamique des clusters</p>
-                    </div>
+                        <p className="text-sm text-muted mb-6">
+                            Sélectionnez un article pour voir comment le moteur de clustering le traiterait (rejoint un cluster existant ou en crée un nouveau).
+                            <br />
+                            <span className="text-xs italic opacity-70">
+                                Règles : Recherche 75% | Cohérence cluster 80% | Fenêtre 7 jours | Meilleur cluster
+                            </span>
+                        </p>
 
-                    <div className="flex items-center gap-2">
-                        <div className="relative">
-                            <Search className="w-4 h-4 text-muted absolute left-3 top-1/2 -translate-y-1/2" />
-                            <input
-                                type="text"
-                                placeholder="Rechercher..."
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                                className="pl-9 pr-3 py-1.5 bg-secondary text-sm rounded-lg border border-border focus:ring-1 focus:ring-accent outline-none w-40 md:w-60"
+                        <div className="max-w-xl mb-4">
+                            <ArticleSearch
+                                label="Article à tester"
+                                value={selectedArticle1}
+                                onChange={setSelectedArticle1}
                             />
                         </div>
-                        <div className="relative">
-                            <Filter className="w-4 h-4 text-muted absolute left-3 top-1/2 -translate-y-1/2" />
-                            <select
-                                value={filterStatus}
-                                onChange={(e) => {
-                                    setFilterStatus(e.target.value as 'all' | 'published' | 'unpublished' | 'important');
-                                    setPage(1);
-                                }}
-                                className="pl-9 pr-3 py-1.5 bg-secondary text-sm rounded-lg border border-border focus:ring-1 focus:ring-accent outline-none appearance-none cursor-pointer"
-                            >
-                                <option value="all">Tous les statuts</option>
-                                <option value="published">Publiés</option>
-                                <option value="unpublished">Non publiés</option>
-                                <option value="important">Importants (Score 7+)</option>
-                            </select>
-                        </div>
-                        <div className="relative">
-                            <ListOrdered className="w-4 h-4 text-muted absolute left-3 top-1/2 -translate-y-1/2" />
-                            <select
-                                value={sortBy}
-                                onChange={(e) => {
-                                    setSortBy(e.target.value as 'date_desc' | 'score_desc' | 'count_desc');
-                                    setPage(1);
-                                }}
-                                className="pl-9 pr-3 py-1.5 bg-secondary text-sm rounded-lg border border-border focus:ring-1 focus:ring-accent outline-none appearance-none cursor-pointer"
-                            >
-                                <option value="date_desc">Plus récents</option>
-                                <option value="score_desc">Meilleur score</option>
-                                <option value="count_desc">Plus d&apos;articles</option>
-                            </select>
-                        </div>
-                    </div>
-                </div>
 
-                <div className={`space-y-2 transition-opacity duration-200 ${loading ? 'opacity-50 pointer-events-none' : ''}`}>
-                    {loading && clusters.length === 0 ? (
-                        <div className="flex justify-center py-12">
-                            <Loader2 className="w-8 h-8 animate-spin text-accent" />
-                        </div>
-                    ) : clusters.length === 0 ? (
-                        <p className="text-center text-muted py-8">Aucun cluster trouvé</p>
-                    ) : (
-                        clusters.map((cluster) => (
-                            <div key={cluster.id} className="border border-border rounded-lg overflow-hidden">
-                                <button
-                                    onClick={() => toggleCluster(cluster.id)}
-                                    className="w-full flex items-center justify-between p-4 hover:bg-secondary/30 transition-colors text-left"
-                                >
-                                    <div className="flex items-center gap-3">
-                                        {expandedCluster === cluster.id ? (
-                                            <ChevronDown className="w-4 h-4 text-muted" />
+                        <button
+                            onClick={simulateClustering}
+                            disabled={!selectedArticle1 || testingSimlarity}
+                            className="px-6 py-2 bg-accent text-white rounded-lg font-bold text-sm disabled:opacity-50 flex items-center gap-2"
+                        >
+                            {testingSimlarity ? <Loader2 className="w-4 h-4 animate-spin" /> : <FlaskConical className="w-4 h-4" />}
+                            Simuler le Clustering
+                        </button>
+
+                        {simulationResult && (
+                            <div className="mt-6 space-y-4">
+                                {/* Decision Banner */}
+                                <div className={`p-4 rounded-lg border ${simulationResult.decision === 'JOIN_EXISTING'
+                                    ? 'bg-green-500/10 border-green-500/50'
+                                    : 'bg-blue-500/10 border-blue-500/50'
+                                    }`}>
+                                    <div className="flex items-center gap-3 mb-1">
+                                        {simulationResult.decision === 'JOIN_EXISTING' ? (
+                                            <CheckCircle className="w-6 h-6 text-green-500" />
                                         ) : (
-                                            <ChevronRight className="w-4 h-4 text-muted" />
+                                            <GitBranch className="w-6 h-6 text-blue-500" />
                                         )}
-                                        <div>
-                                            <p className="font-medium text-sm line-clamp-1">{cluster.label}</p>
-                                            <p className="text-xs text-muted">
-                                                {formatDistanceToNow(new Date(cluster.created_at), { addSuffix: true, locale: fr })}
-                                            </p>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-4">
-                                        <span className="text-xs bg-secondary px-2 py-1 rounded">
-                                            {cluster.article_count} article{cluster.article_count !== 1 ? 's' : ''}
+                                        <span className={`text-lg font-bold ${simulationResult.decision === 'JOIN_EXISTING' ? 'text-green-500' : 'text-blue-500'
+                                            }`}>
+                                            {simulationResult.decision === 'JOIN_EXISTING'
+                                                ? 'Rejoint un cluster existant'
+                                                : 'Crée un NOUVEAU cluster'}
                                         </span>
-                                        {cluster.is_published && (
-                                            <span className="text-xs bg-green-500/20 text-green-500 px-2 py-1 rounded font-bold">
-                                                Publié
-                                            </span>
-                                        )}
-                                        {cluster.final_score && (
-                                            <span className="text-xs text-accent font-mono">
-                                                {cluster.final_score.toFixed(1)}
-                                            </span>
-                                        )}
                                     </div>
-                                </button>
 
-                                {expandedCluster === cluster.id && (
-                                    <div className="border-t border-border bg-secondary/20 p-4">
-                                        {loadingClusterArticles ? (
-                                            <div className="flex justify-center py-4">
-                                                <Loader2 className="w-5 h-5 animate-spin text-accent" />
+                                    {simulationResult.targetCluster && (
+                                        <div className="ml-9 text-sm">
+                                            <div className="flex items-center gap-2">
+                                                <span>Rejoint le cluster : <span className="font-bold">{simulationResult.targetCluster.label}</span></span>
+                                                <span className="text-muted text-xs">({simulationResult.targetCluster.article_count} articles)</span>
                                             </div>
-                                        ) : clusterArticles.length === 0 ? (
-                                            <p className="text-center text-muted text-sm">Aucun article dans ce cluster</p>
-                                        ) : (
-                                            <div className="space-y-3">
-                                                {clusterArticles.map((article: Article, index: number) => (
-                                                    <div key={article.id} className="p-3 bg-card rounded-lg border border-border/50">
-                                                        <div className="flex items-start justify-between gap-3">
-                                                            <div className="flex-1 min-w-0">
-                                                                <div className="flex items-center gap-2 mb-1">
-                                                                    <span className="text-[10px] bg-accent/20 text-accent px-2 py-0.5 rounded font-bold">
-                                                                        {article.source}
-                                                                    </span>
-                                                                    {index === 0 && (
-                                                                        <span className="text-[10px] bg-green-500/20 text-green-500 px-2 py-0.5 rounded font-bold">
-                                                                            Principal
-                                                                        </span>
-                                                                    )}
+
+                                            {simulationResult.targetCluster.previewArticles && (
+                                                <details className="mt-2 text-xs">
+                                                    <summary className="cursor-pointer text-muted hover:text-foreground transition-colors font-medium select-none flex items-center gap-1 w-fit">
+                                                        <ChevronRight className="w-3 h-3 transition-transform group-open:rotate-90" />
+                                                        Voir les articles de ce cluster
+                                                    </summary>
+                                                    <div className="mt-2 pl-4 space-y-1 border-l-2 border-border/50">
+                                                        {simulationResult.targetCluster.previewArticles.map((a) => (
+                                                            <div key={a.id} className="flex items-center gap-2 py-1">
+                                                                <ExternalLink className="w-3 h-3 text-muted shrink-0" />
+                                                                <span className="truncate opacity-80" title={a.title}>{a.title}</span>
+                                                                <span className="text-[10px] text-muted font-mono whitespace-nowrap ml-auto">
+                                                                    {a.published_at ? formatDistanceToNow(new Date(a.published_at), { addSuffix: true, locale: fr }) : ''}
+                                                                </span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </details>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Matches Table */}
+                                <div className="bg-secondary/20 rounded-lg p-4 border border-border">
+                                    <h3 className="text-sm font-bold text-muted mb-3 uppercase tracking-wide">
+                                        Articles Similaires Trouvés ({simulationResult.matches?.length || 0})
+                                    </h3>
+
+                                    {(!simulationResult.matches || simulationResult.matches.length === 0) ? (
+                                        <p className="text-sm text-muted italic">Aucun article similaire trouvé (&gt; 50%) dans les 7 derniers jours.</p>
+                                    ) : (
+                                        <div className="space-y-2">
+                                            {simulationResult.matches.map((match: Match) => {
+                                                const isWeak = match.matchType !== 'valid' || match.similarity < 0.80;
+                                                const isTarget = simulationResult.targetCluster && match.cluster?.id === simulationResult.targetCluster.id;
+                                                return (
+                                                    <div
+                                                        key={match.id}
+                                                        className={`p-3 rounded border flex items-center justify-between text-sm ${isTarget
+                                                            ? 'bg-accent/5 border-accent/30 ring-1 ring-accent/20'
+                                                            : isWeak
+                                                                ? 'bg-secondary/30 border-border/30 opacity-75'
+                                                                : 'bg-card border-border/50 shadow-sm'
+                                                            }`}
+                                                    >
+                                                        <div className="flex-1 min-w-0 pr-4">
+                                                            <div className="flex items-center gap-2">
+                                                                <div className="font-medium truncate">
+                                                                    {match.title}
                                                                 </div>
-                                                                <h4 className="text-sm font-medium leading-snug">{article.title}</h4>
-                                                                {article.score && (
-                                                                    <div className="text-[10px] text-muted mt-1">
-                                                                        Score: <span className="font-mono text-accent">{article.score.toFixed(1)}</span>
-                                                                    </div>
+                                                                {isTarget && (
+                                                                    <span className="text-[10px] bg-accent text-white px-1.5 py-0.5 rounded font-bold uppercase tracking-wider shadow-sm">
+                                                                        Cible
+                                                                    </span>
+                                                                )}
+                                                                {isWeak && (
+                                                                    <span className="text-[10px] bg-red-500/10 text-red-500 px-1.5 py-0.5 rounded border border-red-500/20 uppercase font-bold tracking-wider">
+                                                                        Faible
+                                                                    </span>
                                                                 )}
                                                             </div>
-                                                            <a
-                                                                href={article.url}
-                                                                target="_blank"
-                                                                rel="noopener noreferrer"
-                                                                className="text-accent hover:text-accent/80 transition-colors shrink-0"
-                                                                title="Ouvrir l'article"
-                                                            >
-                                                                <ExternalLink className="w-4 h-4" />
-                                                            </a>
+                                                            <div className="flex items-center gap-2 mt-1">
+                                                                <span className="text-xs text-muted">{formatDistanceToNow(new Date(match.published_at), { addSuffix: true, locale: fr })}</span>
+                                                                {match.cluster ? (
+                                                                    <span className="text-[10px] bg-accent/10 text-accent px-1.5 py-0.5 rounded border border-accent/20">
+                                                                        Cluster: {match.cluster.label}
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="text-[10px] bg-secondary text-muted px-1.5 py-0.5 rounded">
+                                                                        Sans cluster
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                        <div className="shrink-0 text-right">
+                                                            <div className={`font-mono font-bold ${getScoreColor(match.similarity)}`}>
+                                                                {(match.similarity * 100).toFixed(1)}%
+                                                            </div>
                                                         </div>
                                                     </div>
-                                                ))}
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+
+
+                                {/* Old location removed */}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Clusters List */}
+                    <div className="bg-card border border-border rounded-xl p-6">
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+                            <div>
+                                <h2 className="text-lg font-bold flex items-center gap-2">
+                                    <GitBranch className="w-5 h-5 text-accent" />
+                                    Clusters ({totalClusters})
+                                </h2>
+                                <p className="text-xs text-muted">Gestion dynamique des clusters</p>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                                <div className="relative">
+                                    <Search className="w-4 h-4 text-muted absolute left-3 top-1/2 -translate-y-1/2" />
+                                    <input
+                                        type="text"
+                                        placeholder="Rechercher..."
+                                        value={searchQuery}
+                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                        className="pl-9 pr-3 py-1.5 bg-secondary text-sm rounded-lg border border-border focus:ring-1 focus:ring-accent outline-none w-40 md:w-60"
+                                    />
+                                </div>
+                                <div className="relative">
+                                    <Filter className="w-4 h-4 text-muted absolute left-3 top-1/2 -translate-y-1/2" />
+                                    <select
+                                        value={filterStatus}
+                                        onChange={(e) => {
+                                            setFilterStatus(e.target.value as 'all' | 'published' | 'unpublished' | 'important');
+                                            setPage(1);
+                                        }}
+                                        className="pl-9 pr-3 py-1.5 bg-secondary text-sm rounded-lg border border-border focus:ring-1 focus:ring-accent outline-none appearance-none cursor-pointer"
+                                    >
+                                        <option value="all">Tous les statuts</option>
+                                        <option value="published">Publiés</option>
+                                        <option value="unpublished">Non publiés</option>
+                                        <option value="important">Importants (Score 7+)</option>
+                                    </select>
+                                </div>
+                                <div className="relative">
+                                    <ListOrdered className="w-4 h-4 text-muted absolute left-3 top-1/2 -translate-y-1/2" />
+                                    <select
+                                        value={sortBy}
+                                        onChange={(e) => {
+                                            setSortBy(e.target.value as 'date_desc' | 'score_desc' | 'count_desc');
+                                            setPage(1);
+                                        }}
+                                        className="pl-9 pr-3 py-1.5 bg-secondary text-sm rounded-lg border border-border focus:ring-1 focus:ring-accent outline-none appearance-none cursor-pointer"
+                                    >
+                                        <option value="date_desc">Plus récents</option>
+                                        <option value="score_desc">Meilleur score</option>
+                                        <option value="count_desc">Plus d&apos;articles</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className={`space-y-2 transition-opacity duration-200 ${loading ? 'opacity-50 pointer-events-none' : ''}`}>
+                            {loading && clusters.length === 0 ? (
+                                <div className="flex justify-center py-12">
+                                    <Loader2 className="w-8 h-8 animate-spin text-accent" />
+                                </div>
+                            ) : clusters.length === 0 ? (
+                                <p className="text-center text-muted py-8">Aucun cluster trouvé</p>
+                            ) : (
+                                clusters.map((cluster) => (
+                                    <div key={cluster.id} className="border border-border rounded-lg overflow-hidden">
+                                        <button
+                                            onClick={() => toggleCluster(cluster.id)}
+                                            className="w-full flex items-center justify-between p-4 hover:bg-secondary/30 transition-colors text-left"
+                                        >
+                                            <div className="flex items-center gap-3">
+                                                {expandedCluster === cluster.id ? (
+                                                    <ChevronDown className="w-4 h-4 text-muted" />
+                                                ) : (
+                                                    <ChevronRight className="w-4 h-4 text-muted" />
+                                                )}
+                                                <div>
+                                                    <p className="font-medium text-sm line-clamp-1">{cluster.label}</p>
+                                                    <p className="text-xs text-muted">
+                                                        {formatDistanceToNow(new Date(cluster.created_at), { addSuffix: true, locale: fr })}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center gap-4">
+                                                <span className="text-xs bg-secondary px-2 py-1 rounded">
+                                                    {cluster.article_count} article{cluster.article_count !== 1 ? 's' : ''}
+                                                </span>
+                                                {cluster.is_published && (
+                                                    <span className="text-xs bg-green-500/20 text-green-500 px-2 py-1 rounded font-bold">
+                                                        Publié
+                                                    </span>
+                                                )}
+                                                {cluster.final_score && (
+                                                    <span className="text-xs text-accent font-mono">
+                                                        {cluster.final_score.toFixed(1)}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </button>
+
+                                        {expandedCluster === cluster.id && (
+                                            <div className="border-t border-border bg-secondary/20 p-4">
+                                                {loadingClusterArticles ? (
+                                                    <div className="flex justify-center py-4">
+                                                        <Loader2 className="w-5 h-5 animate-spin text-accent" />
+                                                    </div>
+                                                ) : clusterArticles.length === 0 ? (
+                                                    <p className="text-center text-muted text-sm">Aucun article dans ce cluster</p>
+                                                ) : (
+                                                    <div className="space-y-3">
+                                                        {clusterArticles.map((article: Article, index: number) => (
+                                                            <div key={article.id} className="p-3 bg-card rounded-lg border border-border/50">
+                                                                <div className="flex items-start justify-between gap-3">
+                                                                    <div className="flex-1 min-w-0">
+                                                                        <div className="flex items-center gap-2 mb-1">
+                                                                            <span className="text-[10px] bg-accent/20 text-accent px-2 py-0.5 rounded font-bold">
+                                                                                {article.source}
+                                                                            </span>
+                                                                            {index === 0 && (
+                                                                                <span className="text-[10px] bg-green-500/20 text-green-500 px-2 py-0.5 rounded font-bold">
+                                                                                    Principal
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                        <h4 className="text-sm font-medium leading-snug">{article.title}</h4>
+                                                                        {article.score && (
+                                                                            <div className="text-[10px] text-muted mt-1">
+                                                                                Score: <span className="font-mono text-accent">{article.score.toFixed(1)}</span>
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                    <a
+                                                                        href={article.url}
+                                                                        target="_blank"
+                                                                        rel="noopener noreferrer"
+                                                                        className="text-accent hover:text-accent/80 transition-colors shrink-0"
+                                                                        title="Ouvrir l'article"
+                                                                    >
+                                                                        <ExternalLink className="w-4 h-4" />
+                                                                    </a>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
                                             </div>
                                         )}
                                     </div>
-                                )}
-                            </div>
-                        ))
-                    )}
-                </div>
+                                ))
+                            )}
+                        </div>
 
-                {/* Pagination */}
-                {totalPages > 1 && (
-                    <div className="flex items-center justify-center gap-4 mt-6">
-                        <button
-                            onClick={() => setPage(p => Math.max(1, p - 1))}
-                            disabled={page === 1}
-                            className="p-2 rounded hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            <ChevronLeft className="w-5 h-5" />
-                        </button>
-                        <span className="text-sm font-medium">
-                            Page {page} / {totalPages}
-                        </span>
-                        <button
-                            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                            disabled={page === totalPages}
-                            className="p-2 rounded hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            <ChevronRight className="w-5 h-5" />
-                        </button>
+                        {/* Pagination */}
+                        {totalPages > 1 && (
+                            <div className="flex items-center justify-center gap-4 mt-6">
+                                <button
+                                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                                    disabled={page === 1}
+                                    className="p-2 rounded hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    <ChevronLeft className="w-5 h-5" />
+                                </button>
+                                <span className="text-sm font-medium">
+                                    Page {page} / {totalPages}
+                                </span>
+                                <button
+                                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                                    disabled={page === totalPages}
+                                    className="p-2 rounded hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    <ChevronRight className="w-5 h-5" />
+                                </button>
+                            </div>
+                        )}
                     </div>
-                )}
-            </div>
+                </>
+            )}
         </div >
     );
 }

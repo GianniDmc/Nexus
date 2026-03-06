@@ -196,7 +196,12 @@ Le dashboard `/admin` expose désormais les contrôles de cohérence suivants:
 
 ### Vecteurs
 `pgvector` sert à la similarité sémantique (RPC `find_similar_articles`).
-Le seuil par défaut est **0.75** avec une fenêtre de **7 jours** (l'outil admin "similarité" affiche un indicateur à **0.70**).
+
+Clustering — garde-fous anti-mega-cluster (mars 2026) :
+- **Seuil de recherche** : `0.75` — retrouve les articles candidats dans une fenêtre de ±7 jours.
+- **Seuil de cohérence** : `0.80` — pour rejoindre un cluster existant, l'article doit avoir au moins un match ≥ 0.80 dans ce cluster. Sinon → nouveau cluster.
+- **Sélection du meilleur cluster** : si plusieurs clusters candidats matchent, on retient celui avec la meilleure similarité max (départagé par nombre de matches).
+- Script de maintenance : `npx tsx scripts/break-megacluster.ts` pour éclater les clusters trop volumineux.
 
 ## 8. Scripts utilitaires
 Des scripts Node.js (`scripts/`) servent aux audits et migrations ponctuelles :
