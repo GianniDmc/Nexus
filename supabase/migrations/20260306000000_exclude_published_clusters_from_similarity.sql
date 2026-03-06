@@ -1,7 +1,6 @@
--- Exclure les articles de clusters publiés de la recherche de similarité.
--- Empêche les nouveaux articles d'être absorbés par des clusters déjà publiés,
--- ce qui forçait des événements distincts (ex: "YggTorrent ferme" vs "YggTorrent rouvre")
--- à fusionner dans le même cluster.
+-- Nettoyage : recréer la fonction find_similar_articles sans filtre sur is_published.
+-- Les clusters publiés restent ouverts pour absorber de nouveaux articles sur le même événement.
+-- La distinction entre événements distincts est gérée côté applicatif (décroissance temporelle).
 DROP FUNCTION IF EXISTS find_similar_articles(vector, float, int, timestamptz, int, uuid);
 
 CREATE OR REPLACE FUNCTION find_similar_articles(
@@ -25,28 +24,24 @@ AS $$
 BEGIN
     RETURN QUERY
     SELECT
-        a.id,
-        a.title,
-        1 - (a.embedding <=> query_embedding) AS similarity,
-        a.cluster_id,
-        a.published_at,
-        a.source_name
-    FROM articles a
-    LEFT JOIN clusters c ON c.id = a.cluster_id
+        articles.id,
+        articles.title,
+        1 - (articles.embedding <=> query_embedding) AS similarity,
+        articles.cluster_id,
+        articles.published_at,
+        articles.source_name
+    FROM articles
     WHERE
         -- Time Window: +/- window_days around the anchor date
-        a.published_at >= (anchor_date - (window_days || ' days')::interval)
-        AND a.published_at <= (anchor_date + (window_days || ' days')::interval)
+        articles.published_at >= (anchor_date - (window_days || ' days')::interval)
+        AND articles.published_at <= (anchor_date + (window_days || ' days')::interval)
 
         -- Vector Similarity
-        AND 1 - (a.embedding <=> query_embedding) > match_threshold
+        AND 1 - (articles.embedding <=> query_embedding) > match_threshold
 
         -- Self Exclusion
-        AND (exclude_id IS NULL OR a.id != exclude_id)
-
-        -- Exclure les articles appartenant à des clusters déjà publiés
-        AND (a.cluster_id IS NULL OR c.is_published = false)
-    ORDER BY a.embedding <=> query_embedding
+        AND (exclude_id IS NULL OR articles.id != exclude_id)
+    ORDER BY articles.embedding <=> query_embedding
     LIMIT match_count;
 END;
 $$;
