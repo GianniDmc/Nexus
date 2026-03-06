@@ -1,4 +1,4 @@
-export const EXECUTION_PROFILES = ['api', 'manual', 'refresh', 'gha'] as const;
+export const EXECUTION_PROFILES = ['api', 'manual', 'refresh', 'gha', 'rpi'] as const;
 export type ExecutionProfile = (typeof EXECUTION_PROFILES)[number];
 
 const DEFAULT_EXECUTION_PROFILE: ExecutionProfile = 'api';
@@ -86,6 +86,14 @@ const PROCESS_PROFILE_DEFAULTS: Record<ExecutionProfile, ProcessProfileDefaults>
     llmDelayFreeMs: 900,
     llmDelayPaidMs: 60,
   },
+  rpi: {
+    maxExecutionMs: 3600000, // 1h — pas de contrainte réelle sur infra perso
+    useProcessingState: true,
+    processingLimitFree: 10,
+    processingLimitPaid: 500,
+    llmDelayFreeMs: 1500,
+    llmDelayPaidMs: 150,
+  },
 };
 
 const INGEST_PROFILE_DEFAULTS: Record<ExecutionProfile, IngestProfileDefaults> = {
@@ -116,6 +124,13 @@ const INGEST_PROFILE_DEFAULTS: Record<ExecutionProfile, IngestProfileDefaults> =
     sourceConcurrency: 14,
     sourceTimeoutMs: 15000,
     retrySourceTimeoutMs: 12000,
+  },
+  rpi: {
+    batchSize: 8,
+    batchDelayMs: 200,
+    sourceConcurrency: 4,
+    sourceTimeoutMs: 12000,
+    retrySourceTimeoutMs: 10000,
   },
 };
 
