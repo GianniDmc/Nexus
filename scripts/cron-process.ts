@@ -7,6 +7,7 @@ if (existsSync('.env.local')) {
 }
 
 import { runProcess, type ProcessStep } from '../src/lib/pipeline/process';
+import { sanitizeExecutionProfile } from '../src/lib/pipeline/execution-policy';
 import type { AIOverrideConfig } from '../src/lib/ai';
 import type { PublicationOverrides } from '../src/lib/publication-rules';
 
@@ -34,13 +35,14 @@ async function main() {
     ignoreMaturity: toBool(process.env.IGNORE_MATURITY),
   };
 
+  const executionProfile = sanitizeExecutionProfile(process.env.EXECUTION_PROFILE, 'gha');
   const preferredProvider = process.env.PREFERRED_PROVIDER as AIOverrideConfig['preferredProvider'] | undefined;
   const config: AIOverrideConfig | undefined = preferredProvider ? { preferredProvider } : undefined;
 
   const result = await runProcess({
     step,
     config,
-    executionProfile: 'gha',
+    executionProfile,
     publicationOverrides,
     maxExecutionMs: toNumber(process.env.MAX_EXECUTION_MS) !== undefined ? maxExecutionMs : undefined,
     useProcessingState: process.env.USE_PROCESSING_STATE !== 'false',
