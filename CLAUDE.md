@@ -32,7 +32,7 @@ The core data flow is a sequential pipeline: **Ingestion** → **Embedding** →
 - `/api/ingest` — RSS parsing + content scraping, incremental via `last_fetched_at`
 - `/api/process` — Runs the 4 processing steps (embedding → clustering → scoring → rewriting/publish)
 - Pipeline step implementations live in `src/lib/pipeline/steps/`
-- Execution profiles (`api`, `manual`, `refresh`, `gha`) with different timeouts/batch sizes are defined in `src/lib/pipeline/execution-policy.ts`
+- Execution profiles (`api`, `manual`, `refresh`, `gha`, `rpi`) with different timeouts/batch sizes are defined in `src/lib/pipeline/execution-policy.ts`
 
 ### AI Strategy (Multi-Provider)
 
@@ -59,7 +59,7 @@ Supabase PostgreSQL with pgvector extension. Key tables: `articles`, `clusters`,
 
 ### CI/CD
 
-GitHub Actions (`cron-process.yml`) runs every 15 minutes with a 24-minute global time budget, orchestrating ingest + process drain cycles.
+Pipeline runs on a self-hosted Raspberry Pi 3B+ via crontab (`scripts/rpi-pipeline.sh`) every 30 minutes with the `rpi` execution profile. Auto-deploy (`scripts/rpi-deploy.sh`) pulls changes every 5 minutes. GitHub Actions workflow (`cron-process.yml`) is kept but schedule is disabled. Setup guide: `scripts/rpi-setup.md`.
 
 ## Key Conventions
 
