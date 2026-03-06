@@ -5,28 +5,58 @@ import type { ProcessExecutionContext } from '../process-context';
 // un article doit être fortement similaire à au moins un article du cluster cible.
 const CLUSTER_COHERENCE_THRESHOLD = 0.80;
 
+// Décroissance temporelle : pénalise la similarité en fonction de l'écart temporel.
+// Deux articles sur la même entité mais publiés à plusieurs jours d'intervalle
+// ont plus de chances de couvrir des événements distincts (ex: "YggTorrent ferme"
+// puis "un nouveau YggTorrent rouvre"). La pénalité atteint son max après DECAY_HOURS.
+const TEMPORAL_DECAY_MAX_PENALTY = 0.10; // Pénalité max appliquée à la similarité
+const TEMPORAL_DECAY_HOURS = 48; // Durée pour atteindre la pénalité max
+
 type SimilarMatch = {
   id: string;
   similarity: number;
   cluster_id: string | null;
+  published_at: string | null;
 };
 
+// Applique une décroissance temporelle à un score de similarité.
+// Plus l'écart temporel est grand, plus la pénalité est forte (linéaire, plafonnée).
+function applyTemporalDecay(
+  rawSimilarity: number,
+  anchorDate: string,
+  matchDate: string | null
+): number {
+  if (!matchDate) return rawSimilarity;
+
+  const anchorMs = new Date(anchorDate).getTime();
+  const matchMs = new Date(matchDate).getTime();
+  const gapHours = Math.abs(anchorMs - matchMs) / (1000 * 60 * 60);
+
+  const decayFactor = Math.min(gapHours / TEMPORAL_DECAY_HOURS, 1.0);
+  return rawSimilarity - decayFactor * TEMPORAL_DECAY_MAX_PENALTY;
+}
+
 // Sélection du meilleur cluster parmi les matches similaires.
-// Groupe par cluster, retient celui avec la meilleure similarité max,
-// départagé par le nombre de matches dans ce cluster.
-function selectBestCluster(matchRows: SimilarMatch[]): { clusterId: string; bestSimilarity: number } | null {
+// Groupe par cluster, retient celui avec la meilleure similarité ajustée
+// (après décroissance temporelle), départagé par le nombre de matches.
+function selectBestCluster(
+  matchRows: SimilarMatch[],
+  anchorDate: string
+): { clusterId: string; bestSimilarity: number } | null {
   const clusterMap = new Map<string, { bestSimilarity: number; matchCount: number }>();
 
   for (const match of matchRows) {
     if (!match.cluster_id) continue;
 
+    const adjustedSimilarity = applyTemporalDecay(match.similarity, anchorDate, match.published_at);
+
     const entry = clusterMap.get(match.cluster_id);
     if (entry) {
-      entry.bestSimilarity = Math.max(entry.bestSimilarity, match.similarity);
+      entry.bestSimilarity = Math.max(entry.bestSimilarity, adjustedSimilarity);
       entry.matchCount++;
     } else {
       clusterMap.set(match.cluster_id, {
-        bestSimilarity: match.similarity,
+        bestSimilarity: adjustedSimilarity,
         matchCount: 1,
       });
     }
@@ -106,7 +136,8 @@ export async function runClusteringStep(context: ProcessExecutionContext): Promi
       });
 
       const matchRows = Array.isArray(matches) ? (matches as SimilarMatch[]) : [];
-      const bestCluster = selectBestCluster(matchRows);
+      const anchorDate = article.published_at || new Date().toISOString();
+      const bestCluster = selectBestCluster(matchRows, anchorDate);
 
       if (bestCluster) {
         await supabase.from('articles').update({ cluster_id: bestCluster.clusterId }).eq('id', article.id);
