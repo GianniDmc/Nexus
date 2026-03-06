@@ -59,19 +59,23 @@ GROQ_API_KEY=gsk_...
 crontab -e
 ```
 
-Ajouter la ligne (exécution toutes les 30 minutes) :
+Ajouter les lignes suivantes :
 
 ```cron
+# Auto-déploiement (git pull toutes les 5 min)
+*/5 * * * * /home/pi/nexus/scripts/rpi-deploy.sh >> /var/log/nexus-deploy.log 2>&1
+
+# Pipeline éditorial (toutes les 30 min)
 */30 * * * * /home/pi/nexus/scripts/rpi-pipeline.sh >> /var/log/nexus-pipeline.log 2>&1
 ```
 
 > Adapter le chemin `/home/pi/nexus` selon l'emplacement réel du projet.
 
-### Créer le fichier de log
+### Créer les fichiers de log
 
 ```bash
-sudo touch /var/log/nexus-pipeline.log
-sudo chown $USER:$USER /var/log/nexus-pipeline.log
+sudo touch /var/log/nexus-pipeline.log /var/log/nexus-deploy.log
+sudo chown $USER:$USER /var/log/nexus-pipeline.log /var/log/nexus-deploy.log
 ```
 
 ## Rotation des logs
@@ -79,7 +83,7 @@ sudo chown $USER:$USER /var/log/nexus-pipeline.log
 Créer `/etc/logrotate.d/nexus` :
 
 ```
-/var/log/nexus-pipeline.log {
+/var/log/nexus-pipeline.log /var/log/nexus-deploy.log {
     weekly
     rotate 4
     compress
