@@ -126,9 +126,9 @@ const INGEST_PROFILE_DEFAULTS: Record<ExecutionProfile, IngestProfileDefaults> =
     retrySourceTimeoutMs: 12000,
   },
   rpi: {
-    batchSize: 8,
-    batchDelayMs: 200,
-    sourceConcurrency: 4,
+    batchSize: 3, // Reduced from 8 to avoid OOM killer on RPi when parsing heavy HTML with cheerio
+    batchDelayMs: 500, // Added more delay to relieve CPU/memory pressure
+    sourceConcurrency: 2, // Reduced from 4
     sourceTimeoutMs: 12000,
     retrySourceTimeoutMs: 10000,
   },
