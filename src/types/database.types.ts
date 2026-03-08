@@ -68,11 +68,7 @@ export type Database = {
           final_score: number | null
           id: string
           image_url: string | null
-          is_published: boolean | null
-          metadata: Json | null
           published_at: string | null
-          published_on: string | null
-          relevance_score: number | null
           source_name: string | null
           source_url: string
           summary_short: string | null
@@ -88,11 +84,7 @@ export type Database = {
           final_score?: number | null
           id?: string
           image_url?: string | null
-          is_published?: boolean | null
-          metadata?: Json | null
           published_at?: string | null
-          published_on?: string | null
-          relevance_score?: number | null
           source_name?: string | null
           source_url: string
           summary_short?: string | null
@@ -108,11 +100,7 @@ export type Database = {
           final_score?: number | null
           id?: string
           image_url?: string | null
-          is_published?: boolean | null
-          metadata?: Json | null
           published_at?: string | null
-          published_on?: string | null
-          relevance_score?: number | null
           source_name?: string | null
           source_url?: string
           summary_short?: string | null
@@ -175,59 +163,6 @@ export type Database = {
           },
         ]
       }
-      digests: {
-        Row: {
-          content_json: Json
-          created_at: string | null
-          id: string
-          published_at: string | null
-          title: string
-        }
-        Insert: {
-          content_json: Json
-          created_at?: string | null
-          id?: string
-          published_at?: string | null
-          title: string
-        }
-        Update: {
-          content_json?: Json
-          created_at?: string | null
-          id?: string
-          published_at?: string | null
-          title?: string
-        }
-        Relationships: []
-      }
-      reading_list: {
-        Row: {
-          article_id: string | null
-          created_at: string | null
-          id: string
-          user_id: string | null
-        }
-        Insert: {
-          article_id?: string | null
-          created_at?: string | null
-          id?: string
-          user_id?: string | null
-        }
-        Update: {
-          article_id?: string | null
-          created_at?: string | null
-          id?: string
-          user_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "reading_list_article_id_fkey"
-            columns: ["article_id"]
-            isOneToOne: false
-            referencedRelation: "articles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       sources: {
         Row: {
           category: string | null
@@ -263,7 +198,6 @@ export type Database = {
       }
       summaries: {
         Row: {
-          author: string | null
           cluster_id: string | null
           content_analysis: string | null
           content_full: string | null
@@ -276,7 +210,6 @@ export type Database = {
           title: string | null
         }
         Insert: {
-          author?: string | null
           cluster_id?: string | null
           content_analysis?: string | null
           content_full?: string | null
@@ -289,7 +222,6 @@ export type Database = {
           title?: string | null
         }
         Update: {
-          author?: string | null
           cluster_id?: string | null
           content_analysis?: string | null
           content_full?: string | null

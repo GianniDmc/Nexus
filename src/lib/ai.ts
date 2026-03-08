@@ -359,17 +359,3 @@ export async function generateEmbedding(text: string, apiKey?: string) {
   return null;
 }
 
-export async function generateDailyDigest(articles: any[], overrideConfig?: AIOverrideConfig) {
-  const articlesText = articles.map(a => `- ${a.title}`).join('\n');
-  const prompt = `Rédige le Digest Nexus du jour. 5 points clés. JSON: {"title": "...", "intro": "...", "essentials": ["..."]}. Articles: ${articlesText}`;
-  try {
-    const response = await createChatCompletion({
-      model: 'llama-3.3-70b-versatile',
-      messages: [{ role: 'user', content: prompt }],
-      response_format: { type: 'json_object' },
-    }, overrideConfig, 'smart');
-    return JSON.parse(response.choices[0].message.content || '{}');
-  } catch (error) {
-    return null;
-  }
-}
