@@ -125,6 +125,7 @@ export type Database = {
           last_processed_at: string | null
           published_on: string | null
           representative_article_id: string | null
+          scoring_details: Json | null
         }
         Insert: {
           category?: string | null
@@ -137,6 +138,7 @@ export type Database = {
           last_processed_at?: string | null
           published_on?: string | null
           representative_article_id?: string | null
+          scoring_details?: Json | null
         }
         Update: {
           category?: string | null
@@ -149,6 +151,7 @@ export type Database = {
           last_processed_at?: string | null
           published_on?: string | null
           representative_article_id?: string | null
+          scoring_details?: Json | null
         }
         Relationships: [
           {

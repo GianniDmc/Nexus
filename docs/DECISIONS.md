@@ -39,6 +39,7 @@ Ce document consigne les choix techniques structurants du projet **App Curation 
 | ADR-031 | 2026-02-11 | Profils d'exécution centralisés + process modulaire | Validé |
 | ADR-032 | 2026-02-24 | Ingest incrémental + skip_scrape configurable | Validé |
 | ADR-033 | 2026-02-26 | Simplification Pipeline Cron (Budget Global) | Validé |
+| ADR-034 | 2026-03-08 | Scoring multi-critères avec chain-of-thought | Validé |
 
 ---
 
@@ -725,3 +726,32 @@ Le pipeline de process GitHub Actions utilisait un système complexe de boucles 
 ### Conséquences
 - **Positif** : Code bash beaucoup plus clair. Exploitation optimale du conteneur GHA jusqu'à 24 minutes sans boots Node inutiles. Respect parfait de la chronologie éditoriale.
 - **Négatif** : Un pipeline "en retard" (ex: trop d'embeddings) bloquera entièrement les synthèses finales pendant ce cycle, repoussant la publication au quart d'heure suivant. C'est assumé comme un gage de qualité.
+
+---
+
+## ADR-034 : Scoring multi-critères avec chain-of-thought
+
+### Contexte
+Le scoring des clusters reposait sur un score global opaque (0-10) demandé au LLM sans calibration ni raisonnement explicite. Le critère "Fraîcheur" était demandé au LLM sans lui fournir de dates, alors qu'il est déjà géré algorithmiquement (`FRESHNESS_HOURS`, `CLUSTER_MATURITY_HOURS`). Les extraits étaient limités à 500 caractères et aucun contexte (dates, nombre de sources) n'était fourni.
+
+### Décision
+1. **3 sous-scores explicites** : Impact (0-10), Pertinence Tech (0-10), Originalité (0-10). Originalité remplace Fraîcheur (gérée par le code).
+2. **Pondération côté code** : `impact × 0.45 + tech_relevance × 0.35 + originality × 0.20`, calculée par `computeWeightedScore()` dans `src/lib/scoring-config.ts`. Le LLM ne calcule plus le score final.
+3. **Chain-of-thought** : Champ `reasoning` obligatoire (2-3 phrases) avant les scores.
+4. **Calibration par exemples** : 2 exemples (~3 et ~9) dans le prompt pour ancrer l'échelle.
+5. **Input enrichi** : dates `published_at`, nombre de sources distinctes, période de publication, extraits à 800 caractères.
+6. **Stockage** : Nouvelle colonne `clusters.scoring_details` (jsonb) pour l'auditabilité.
+7. **Seuil ajusté** : `PUBLISH_THRESHOLD` de 8.0 à 7.5 (compensation préventive de la suppression du critère fraîcheur).
+8. **Nettoyage** : Suppression des fonctions orphelines `scoreBatchArticles`, `scoreArticleRelevance`, `computeFinalScore`.
+
+### Fichiers impactés
+- `supabase/migrations/20260308100000_add_scoring_details.sql`
+- `src/lib/scoring-config.ts` (nouveau)
+- `src/lib/ai.ts`
+- `src/lib/pipeline/steps/scoring-step.ts`
+- `src/lib/publication-rules.ts`
+- `src/types/database.types.ts` (regénéré)
+
+### Conséquences
+- **Positif** : Scoring auditable (reasoning + sous-scores), calibré (exemples), et ajustable (poids modifiables sans changer le prompt).
+- **Négatif** : Les scores existants ne sont pas rétro-compatibles (pas de `scoring_details`). Surveiller la distribution 48-72h pour valider le seuil 7.5.

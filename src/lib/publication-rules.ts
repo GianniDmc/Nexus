@@ -11,7 +11,7 @@ export const PUBLICATION_RULES = {
      * Minimum final_score required for an article to be published
      * Scale: 0-10, where 10 is most relevant
      */
-    PUBLISH_THRESHOLD: 8.0,
+    PUBLISH_THRESHOLD: 7.5,
 
     /**
      * Minimum number of unique sources required in a cluster

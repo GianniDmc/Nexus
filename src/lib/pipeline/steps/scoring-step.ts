@@ -3,7 +3,7 @@ import type { ProcessExecutionContext } from '../process-context';
 
 export async function runScoringStep(context: ProcessExecutionContext): Promise<void> {
   const { supabase, effectiveConfig, processingLimit, llmDelayMs, results, log } = context;
-  type ClusterArticle = { id: string; title: string; content: string; source_name: string };
+  type ClusterArticle = { id: string; title: string; content: string; source_name: string; published_at: string | null };
 
   while (context.isTimeSafelyRemaining() && !results.stopped) {
     const { data: clustersToScore, error: scoreQueryError } = await supabase
@@ -14,7 +14,8 @@ export async function runScoringStep(context: ProcessExecutionContext): Promise<
             id,
             title,
             content,
-            source_name
+            source_name,
+            published_at
           )
         `)
       .is('final_score', null)
@@ -65,6 +66,7 @@ export async function runScoringStep(context: ProcessExecutionContext): Promise<
             .update({
               final_score: evaluation.score,
               representative_article_id: evaluation.representative_id,
+              scoring_details: evaluation.details,
             })
             .eq('id', cluster.id);
 

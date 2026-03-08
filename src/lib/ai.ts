@@ -154,113 +154,60 @@ const createChatCompletion = async (
   throw lastError;
 };
 
-/**
- * Scoring par lot (Batch) pour économiser les requêtes API (Rate Limit).
- */
-export async function scoreBatchArticles(
-  articles: { id: string, title: string, content: string }[],
-  overrideConfig?: AIOverrideConfig
-) {
-  if (articles.length === 0) return {};
+// Cluster-Centric Scoring (multi-critères + chain-of-thought)
+import { SCORING_CONFIG, computeWeightedScore, type ScoringDetails } from './scoring-config';
 
-  const articlesText = articles.map(a => `ID: ${a.id}\nTITRE: ${a.title}\nEXTRAIT: ${a.content?.substring(0, 500)}`).join('\n\n---\n\n');
-
-  const prompt = `
-Tu es un curateur tech passionné. Note ces articles de 0 à 10 selon leur intérêt pour un lecteur curieux.
-
-Critères de notation :
-- **Intérêt** (50%) : L'article est-il captivant, instructif ou surprenant ?
-- **Originalité** (30%) : Apporte-t-il un angle nouveau ou une info rare ?
-- **Clarté** (20%) : Le contenu est-il bien écrit et compréhensible ?
-
-Pénalités :
-- Contenu promotionnel/publireportage → -3 points
-- Clickbait sans substance → -4 points
-- Spam ou contenu non pertinent → Score = 0
-
-Articles à noter:
-${articlesText}
-
-Réponds UNIQUEMENT un JSON map { "id_article": score_number, ... }.
-Exemple: { "123": 8, "456": 2 }
-`;
-
-  try {
-    console.log(`[LLM] 🎯 Scoring batch (${articles.length} articles)`);
-    const response = await createChatCompletion({
-      model: 'llama-3.3-70b-versatile',
-      messages: [{ role: 'user', content: prompt }],
-      response_format: { type: 'json_object' }
-    }, overrideConfig, 'fast');
-
-    return JSON.parse(response.choices[0].message.content || '{}');
-  } catch (error) {
-    console.warn("⚠️ Batch Scoring Failed (Retrying 1-by-1 Serial Fallback):", error);
-
-    const results: Record<string, number> = {};
-    for (const article of articles) {
-      try {
-        const score = await scoreArticleRelevance(article.title, article.content, overrideConfig);
-        results[article.id] = score;
-        await sleep(500);
-      } catch (e) {
-        console.error(`Failed to score article ${article.id} in fallback`, e);
-        results[article.id] = 0;
-      }
-    }
-    return results;
-  }
-}
-
-export async function scoreArticleRelevance(title: string, content: string, overrideConfig?: AIOverrideConfig) {
-  const result = await scoreBatchArticles([{ id: 'temp', title, content }], overrideConfig);
-  return result['temp'] || 0;
-}
-
-export function computeFinalScore(
-  baseScore: number,
-  options: { contentLength?: number; publishedAt?: string | Date; sourcesCount?: number }
-) {
-  let score = baseScore;
-  if (options.sourcesCount && options.sourcesCount >= 2) score += 0.5;
-  if (options.contentLength && options.contentLength > 1200) score += 0.2;
-  if (options.publishedAt) {
-    const publishedAt = new Date(options.publishedAt).getTime();
-    const ageHours = (Date.now() - publishedAt) / (1000 * 60 * 60);
-    if (ageHours <= 12) score += 0.3;
-  }
-  return Math.min(10, Math.round(score * 10) / 10);
-}
-
-// Nouvelle fonction Cluster-Centric Scoring
 export async function scoreCluster(
-  articles: { id: string, title: string, content: string, source_name: string }[],
+  articles: { id: string; title: string; content: string; source_name: string; published_at?: string | null }[],
   overrideConfig?: AIOverrideConfig
-) {
-  if (articles.length === 0) return { score: 0, representative_id: null };
+): Promise<{ score: number; representative_id: string | null; details: ScoringDetails | null }> {
+  if (articles.length === 0) return { score: 0, representative_id: null, details: null };
 
-  const articlesText = articles.map(a => `ID: ${a.id}\nSOURCE: ${a.source_name}\nTITRE: ${a.title}\nEXTRAIT: ${a.content?.substring(0, 500)}`).join('\n\n---\n\n');
+  // Méta-données enrichies
+  const uniqueSources = new Set(articles.map(a => a.source_name));
+  const dates = articles
+    .map(a => a.published_at ? new Date(a.published_at) : null)
+    .filter((d): d is Date => d !== null)
+    .sort((a, b) => a.getTime() - b.getTime());
+  const dateRange = dates.length >= 2
+    ? `du ${dates[0].toISOString().slice(0, 10)} au ${dates[dates.length - 1].toISOString().slice(0, 10)}`
+    : dates.length === 1
+      ? dates[0].toISOString().slice(0, 10)
+      : 'dates inconnues';
 
-  const prompt = `
-Tu es un rédacteur en chef Tech. Évalue l'intérêt de ce SUJET d'actualité (regroupé en cluster d'articles).
+  const articlesText = articles.map(a => {
+    const datePart = a.published_at ? `\nDATE: ${new Date(a.published_at).toISOString().slice(0, 16)}` : '';
+    return `ID: ${a.id}\nSOURCE: ${a.source_name}${datePart}\nTITRE: ${a.title}\nEXTRAIT: ${a.content?.substring(0, SCORING_CONFIG.excerptLength)}`;
+  }).join('\n\n---\n\n');
 
-Critères (Score 0-10) :
-- Impact : Est-ce une news majeure ou anecdotique ?
-- Tech Focus : Est-ce pertinent pour une veille technologique ? (Politique/Fait divers = 0 sauf si impact tech majeur).
-- Fraîcheur : Est-ce une info récente ?
+  const prompt = `Tu es un rédacteur en chef Tech. Évalue ce SUJET d'actualité (cluster de ${articles.length} articles, ${uniqueSources.size} sources distinctes, période : ${dateRange}).
 
-Tâche :
-1. Donne un score global au sujet (0-10).
-2. Identifie l'ID de l'article le plus complet/informatif qui servira de base pour la synthèse (representative_id).
+Donne 3 sous-scores de 0 à 10 :
+- **impact** : Est-ce une news majeure qui affecte l'industrie, ou anecdotique ?
+- **tech_relevance** : Est-ce pertinent pour une veille technologique ? (Politique/Fait divers sans lien tech = 0)
+- **originality** : Le sujet apporte-t-il un angle nouveau, une info exclusive, ou est-ce du réchauffé déjà largement couvert ?
+
+Exemples de calibration :
+- Score ~3 : "Une entreprise met à jour son app avec des corrections mineures" → impact 2, tech_relevance 4, originality 2
+- Score ~9 : "OpenAI lance un nouveau modèle qui surpasse tous les benchmarks existants" → impact 10, tech_relevance 9, originality 8
+
+Identifie aussi l'ID de l'article le plus complet/informatif (representative_id).
 
 Articles du cluster :
 ${articlesText}
 
-Réponds UNIQUEMENT un JSON : { "score": number, "representative_id": "uuid_string" }
-`;
+Raisonne brièvement (2-3 phrases dans "reasoning") PUIS donne tes scores.
+Réponds UNIQUEMENT un JSON :
+{
+  "reasoning": "...",
+  "impact": <0-10>,
+  "tech_relevance": <0-10>,
+  "originality": <0-10>,
+  "representative_id": "uuid_string"
+}`;
 
   try {
-    console.log(`[LLM] 🎯 Cluster scoring (${articles.length} articles)`);
+    console.log(`[LLM] 🎯 Cluster scoring (${articles.length} articles, ${uniqueSources.size} sources)`);
     const response = await createChatCompletion({
       model: 'llama-3.3-70b-versatile',
       messages: [{ role: 'user', content: prompt }],
@@ -268,14 +215,29 @@ Réponds UNIQUEMENT un JSON : { "score": number, "representative_id": "uuid_stri
     }, overrideConfig, 'fast');
 
     const result = JSON.parse(response.choices[0].message.content || '{}');
+
+    const subscores = {
+      impact: typeof result.impact === 'number' ? Math.min(10, Math.max(0, result.impact)) : 0,
+      tech_relevance: typeof result.tech_relevance === 'number' ? Math.min(10, Math.max(0, result.tech_relevance)) : 0,
+      originality: typeof result.originality === 'number' ? Math.min(10, Math.max(0, result.originality)) : 0,
+    };
+    const weightedScore = computeWeightedScore(subscores);
+
+    const details: ScoringDetails = {
+      version: SCORING_CONFIG.version,
+      reasoning: typeof result.reasoning === 'string' ? result.reasoning : '',
+      subscores,
+      weighted_score: weightedScore,
+    };
+
     return {
-      score: typeof result.score === 'number' ? result.score : 0,
-      representative_id: result.representative_id || articles[0].id
+      score: weightedScore,
+      representative_id: result.representative_id || articles[0].id,
+      details,
     };
   } catch (error) {
     console.error("Cluster Scoring Failed:", error);
-    // Fallback: Moyenne ou 0, et premier article par défaut
-    return { score: 0, representative_id: articles.length > 0 ? articles[0].id : null };
+    return { score: 0, representative_id: articles.length > 0 ? articles[0].id : null, details: null };
   }
 }
 
