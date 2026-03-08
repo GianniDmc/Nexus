@@ -48,7 +48,7 @@ Les valeurs sont résolues par profil d'exécution dans `src/lib/pipeline/execut
 ## 3. Règles de Publication (centralisées)
 Définies dans `src/lib/publication-rules.ts` et réutilisées par l'admin + l'API.
 
-- **Seuil de publication** : `PUBLISH_THRESHOLD = 8.0`
+- **Seuil de publication** : `PUBLISH_THRESHOLD = 7.5`
 - **Sources minimum** : `MIN_SOURCES = 2`
 - **Fraîcheur** : `FRESHNESS_HOURS = 72`
 - **Maturité cluster** : `CLUSTER_MATURITY_HOURS = 3`
@@ -187,7 +187,7 @@ Le dashboard `/admin` expose désormais les contrôles de cohérence suivants:
 ### Tables clés
 - **articles** : source brute, `content`, `summary_short` (legacy, utilisé par `/api/digest`), `image_url`, `embedding`, `category`, `cluster_id`.
   - *Index* : `articles_cluster_id_idx` ajouté pour optimiser les jointures de comptage dans l'admin.
-- **clusters** : agrégation éditoriale (`label`, `representative_article_id`, `final_score`, `is_published`, `published_on`, `category`, `image_url`).
+- **clusters** : agrégation éditoriale (`label`, `representative_article_id`, `final_score`, `scoring_details` jsonb, `is_published`, `published_on`, `category`, `image_url`). Le scoring multi-critères (impact, tech_relevance, originality) est configuré dans `src/lib/scoring-config.ts`.
 - **summaries** : contenu généré (`title`, `content_tldr`, `content_analysis`, `content_full`, `image_url`, `source_count`).
 - **sources** : catalogue RSS avec catégorie, `is_active`, `last_fetched_at`, `skip_scrape`.
 - **app_state** : mutex + progression pipeline.

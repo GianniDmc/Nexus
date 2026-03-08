@@ -45,7 +45,7 @@ The core data flow is a sequential pipeline: **Ingestion** → **Embedding** →
 
 ### Editorial State Machine
 
-Clusters follow a strict state machine defined in `src/lib/editorial-state.ts`. States flow from `pending_scoring` through incubation states to `eligible_rewriting` → `published` or `archived`. Publication rules are centralized in `src/lib/publication-rules.ts` (threshold 8.0, min 2 sources, 72h freshness, 3h maturity).
+Clusters follow a strict state machine defined in `src/lib/editorial-state.ts`. States flow from `pending_scoring` through incubation states to `eligible_rewriting` → `published` or `archived`. Publication rules are centralized in `src/lib/publication-rules.ts` (threshold 7.5, min 2 sources, 72h freshness, 3h maturity).
 
 ### Database
 
