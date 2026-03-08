@@ -65,7 +65,6 @@ export type Database = {
           content: string | null
           created_at: string | null
           embedding: string | null
-          final_score: number | null
           id: string
           image_url: string | null
           published_at: string | null
@@ -81,7 +80,6 @@ export type Database = {
           content?: string | null
           created_at?: string | null
           embedding?: string | null
-          final_score?: number | null
           id?: string
           image_url?: string | null
           published_at?: string | null
@@ -97,7 +95,6 @@ export type Database = {
           content?: string | null
           created_at?: string | null
           embedding?: string | null
-          final_score?: number | null
           id?: string
           image_url?: string | null
           published_at?: string | null

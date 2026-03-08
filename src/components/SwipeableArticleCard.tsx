@@ -1,7 +1,7 @@
 'use client';
 
 import { motion, useMotionValue, useTransform, PanInfo } from 'framer-motion';
-import { Check, Newspaper, Sparkles, Bookmark, Archive } from 'lucide-react';
+import { Check, Newspaper, Bookmark, Archive } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
@@ -172,16 +172,6 @@ export function SwipeableArticleCard({
                                         </span>
                                     )}
 
-                                    {/* Score Display (only when sorting by score) */}
-                                    {sortBy === 'score' && article.final_score !== null && (
-                                        <span className="text-[9px] font-bold text-accent">
-                                            {article.final_score}
-                                        </span>
-                                    )}
-
-                                    {article.final_score > 7 && (
-                                        <Sparkles className="w-2 h-2 text-accent" />
-                                    )}
                                 </div>
                                 <h4 className={`text-sm font-medium leading-snug line-clamp-2 ${isRead ? 'text-primary/60' : isSelected ? 'text-primary' : 'text-primary/90'}`}>
                                     {article.title}
