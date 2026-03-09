@@ -6,7 +6,7 @@ Ce document recense les améliorations techniques et fonctionnelles prévues pou
 - [x] **Administration** : Gestionnaire d'articles avec filtres (Publiés, Prêts, etc.), Tri par Score/Date, indicateurs de réécriture IA.
 - [x] **Pipeline** : Suppression des quotas de publication (Publication illimitée pour les articles pertinents).
 - [x] **Vue Éditoriale** : États de Clusters précis (Eligible, Incubating, Pending) avec descriptions contextuelles dans l'admin.
-- [x] **Clustering** : Ajustement du seuil de similarité (0.60 -> 0.75) pour un regroupement plus strict mais équilibré.
+- [x] **Clustering** : Ajustement du seuil de similarité (0.75), seuil de cohérence strict (0.80) et anti-mega-clusters.
 - [x] **Multi-Provider IA** : Interface Admin pour clés OpenAI/Anthropic/Gemini avec sélection automatique des modèles (Fast/Smart).
 - [x] **Analytics Avancés** : Tableaux de bord avec "Pulse 72h" (activité horaire), "Trend 30d" (tendance mensuelle) et Top Sources.
 - [x] **Harmonisation des Données** : Normalisation stricte des catégories (Source -> Standard IA) et migration de l'historique.
@@ -41,7 +41,7 @@ Ce document recense les améliorations techniques et fonctionnelles prévues pou
 3. **P2 — Hygiène & UX** : nettoyage legacy, factorisation, micro‑optimisations front.
 
 ### 0. Audit Codebase (Février 2026) — Plan d'amélioration
-- [ ] **[P0] Alignement cluster‑centric** : supprimer les reliquats article‑centric (ex: usages de `articles.summary_short` et `articles.final_score`) et basculer définitivement vers `summaries` + `clusters`.
+- [x] **[P0] Alignement cluster‑centric** : suppression des reliquats article‑centric (`articles.final_score`) et bascule totale vers `clusters.final_score`.
 - [ ] **[P2] Digest (legacy)** : clarifier “déprécié / non utilisé” et éviter toute refonte; optionnellement nettoyer la route/UX si inutiles.
 - [ ] **[P0] Representative article** : exploiter `representative_article_id` pour la synthèse, l’image et la sélection “article principal”.
 - [ ] **[P0] Décision de simulation** : homogénéiser les valeurs (`NEW_CLUSTER` / `CREATE_CLUSTER`) et supprimer `create_new_force`.
