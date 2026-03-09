@@ -219,9 +219,9 @@ export async function runRewritingStep(context: ProcessExecutionContext): Promis
     // Batch fetch: charger tous les articles des clusters éligibles en une seule requête
     const { data: allClusterArticles } = await supabase
       .from('articles')
-      .select('cluster_id, title, content, source_name, id, final_score, image_url')
+      .select('cluster_id, title, content, source_name, id, image_url')
       .in('cluster_id', eligibleClusterIds)
-      .order('final_score', { ascending: false });
+      .order('created_at', { ascending: false });
 
     type ClusterArticle = NonNullable<typeof allClusterArticles>[number];
     const sourcesByCluster: Record<string, ClusterArticle[]> = {};
@@ -268,7 +268,7 @@ export async function runRewritingStep(context: ProcessExecutionContext): Promis
           }
 
           if (rewritten && rewritten.title && rewritten.content && rewritten.title.length > 5 && rewritten.content.length > 50) {
-            const topArticle = sources[0]; // Déjà trié par final_score desc
+            const topArticle = sources[0]; // Trié par created_at desc
 
             if (topArticle) {
               const { error: insertError } = await supabase
