@@ -5,12 +5,14 @@ import { Search, Filter, Trash2, CheckCircle, XCircle, MoreHorizontal, ExternalL
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { PUBLICATION_RULES } from '@/lib/publication-rules';
+import { buildScoreTooltip } from '@/lib/score-tooltip';
 
 interface Cluster {
     id: string;
     title: string; // Mapped from label
     created_at: string;
     final_score: number | null;
+    scoring_details: unknown | null;
     summary_short: string | null;
     cluster_size: number;
     is_published: boolean;
@@ -337,7 +339,9 @@ export function ArticleManager() {
                                             : (cluster.final_score === null)
                                                 ? 'bg-yellow-500/10 text-yellow-500'
                                                 : 'bg-red-500/10 text-red-500'
-                                            }`}>
+                                            }`}
+                                            title={buildScoreTooltip(cluster.final_score, cluster.scoring_details)}
+                                        >
                                             {cluster.final_score ?? '?'}
                                         </span>
                                     </td>

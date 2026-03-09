@@ -22,7 +22,7 @@ export async function GET() {
         // 1. Fetch recent clusters (NO JOIN yet to avoid timeout on large tables)
         const { data: clusters, error: clusterError } = await supabase
             .from('clusters')
-            .select('id, label, category, is_published, final_score, representative_article_id')
+            .select('id, label, category, is_published, final_score, scoring_details, representative_article_id')
             .order('created_at', { ascending: false })
             .limit(150);
 
@@ -125,6 +125,7 @@ export async function GET() {
                 category: c.category || 'Général',
                 is_published: c.is_published,
                 score: c.final_score,
+                scoring_details: c.scoring_details ?? null,
                 article_count: c.article_count,
                 // Normalized coords for 2D chart
                 normX: ((rawX - minX) / rangeX) * 100,

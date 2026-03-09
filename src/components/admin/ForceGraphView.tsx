@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import ForceGraph2D, { ForceGraphMethods } from "react-force-graph-2d";
 import { useTheme } from "next-themes";
+import { buildScoreTooltip } from "@/lib/score-tooltip";
 
 export interface GraphData {
     nodes: Array<{
@@ -10,6 +11,8 @@ export interface GraphData {
         label: string;
         category: string;
         is_published: boolean;
+        score: number | null;
+        scoring_details: unknown | null;
         article_count: number;
         val?: number; // Size for ForceGraph
         color?: string; // Color for ForceGraph
@@ -39,6 +42,15 @@ const CATEGORY_COLORS: Record<string, string> = {
     'AI': '#ec4899',         // pink-500
     'Gaming': '#ef4444',     // red-500
 };
+
+function escapeHtml(value: string): string {
+    return value
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+}
 
 export default function ForceGraphView({ data }: ForceGraphViewProps) {
     const { theme } = useTheme();
@@ -114,9 +126,10 @@ export default function ForceGraphView({ data }: ForceGraphViewProps) {
                 }}
                 nodeLabel={(node: any) => `
                     <div style="background: rgba(0,0,0,0.8); color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; pointer-events: none;">
-                        <strong>${node.label}</strong><br/>
+                        <strong>${escapeHtml(String(node.label || ''))}</strong><br/>
                         ${node.article_count} articles • Score: ${node.score?.toFixed(1) || 'N/A'}<br/>
-                        <span style="color: ${node.color}">${node.category}</span>
+                        <span style="color: ${node.color}">${escapeHtml(String(node.category || ''))}</span><br/>
+                        <span style="opacity:0.8; font-size: 11px; white-space: pre-line;">${escapeHtml(buildScoreTooltip(node.score, node.scoring_details))}</span>
                     </div>
                 `}
                 // Labels on canvas

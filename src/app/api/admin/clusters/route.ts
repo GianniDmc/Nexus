@@ -5,6 +5,21 @@ import { parseBoundedInt } from '@/lib/http';
 
 export const dynamic = 'force-dynamic';
 
+type RpcClusterRow = {
+    id: string;
+    label: string;
+    is_published: boolean;
+    final_score: number | null;
+    created_at: string;
+    article_count: number;
+    total_count: number;
+};
+
+type ClusterScoreDetailsRow = {
+    id: string;
+    scoring_details: unknown | null;
+};
+
 export async function GET(req: NextRequest) {
     const supabase = getServiceSupabase();
 
@@ -18,7 +33,7 @@ export async function GET(req: NextRequest) {
     const offset = (page - 1) * limit;
 
     try {
-        const { data: rows, error } = await supabase.rpc('search_clusters', {
+        const { data: rpcRows, error } = await supabase.rpc('search_clusters', {
             search_query: search,
             filter_status: status,
             sort_by: sort,
@@ -28,19 +43,42 @@ export async function GET(req: NextRequest) {
 
         if (error) throw error;
 
+        const rows = (rpcRows || []) as RpcClusterRow[];
+
+        let scoringDetailsMap = new Map<string, unknown | null>();
+        if (rows.length > 0) {
+            const clusterIds = rows.map((row) => row.id);
+            const { data: detailRows, error: detailError } = await supabase
+                .from('clusters')
+                .select('id, scoring_details')
+                .in('id', clusterIds);
+
+            if (detailError) throw detailError;
+
+            scoringDetailsMap = new Map(
+                ((detailRows || []) as ClusterScoreDetailsRow[]).map((row) => [row.id, row.scoring_details])
+            );
+        }
+
+        const clusters = rows.map((row) => ({
+            ...row,
+            scoring_details: scoringDetailsMap.get(row.id) ?? null
+        }));
+
         // Extract total from the first row (window function result)
         // Note: usage of total_count in window function returns same total for all rows
-        const total = rows && rows.length > 0 ? rows[0].total_count : 0;
+        const total = rows.length > 0 ? rows[0].total_count : 0;
 
         return NextResponse.json({
-            clusters: rows || [],
+            clusters,
             total: Number(total),
             page,
             totalPages: Math.ceil(Number(total) / limit)
         });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
         console.error("Cluster Search Error:", error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return NextResponse.json({ error: message }, { status: 500 });
     }
 }

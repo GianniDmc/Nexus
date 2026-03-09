@@ -12,11 +12,13 @@ import {
     Cell
 } from "recharts";
 import type { GraphData } from "./ForceGraphView";
+import { buildScoreTooltip, parseScoreDetails } from "@/lib/score-tooltip";
 
 // Custom Tooltip for the map
 function MapTooltip({ active, payload }: any) {
     if (active && payload && payload.length) {
         const data = payload[0].payload;
+        const details = parseScoreDetails(data.scoring_details);
         return (
             <div className="bg-card/95 backdrop-blur border border-border rounded-lg shadow-xl p-3 text-sm max-w-sm pointer-events-none z-50">
                 <div className="flex items-center gap-2 mb-2">
@@ -32,6 +34,11 @@ function MapTooltip({ active, payload }: any) {
                         <span className="opacity-70">Score:</span> <span className="text-foreground font-mono">{data.score?.toFixed(1) || 'N/A'}</span>
                     </div>
                 </div>
+                {details && (
+                    <div className="text-[11px] text-muted mt-2 border-t border-border/50 pt-2 whitespace-pre-line leading-relaxed">
+                        {buildScoreTooltip(data.score, data.scoring_details)}
+                    </div>
+                )}
             </div>
         );
     }

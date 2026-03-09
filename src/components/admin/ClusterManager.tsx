@@ -5,12 +5,14 @@ import { GitBranch, ChevronDown, ChevronRight, Loader2, FlaskConical, CheckCircl
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import ClusterMapTab from './ClusterMapTab';
+import { buildScoreTooltip } from '@/lib/score-tooltip';
 
 interface Cluster {
     id: string;
     label: string;
     is_published: boolean;
     final_score: number | null;
+    scoring_details: unknown | null;
     article_count: number;
     created_at: string;
 }
@@ -536,8 +538,11 @@ export function ClusterManager() {
                                                         Publié
                                                     </span>
                                                 )}
-                                                {cluster.final_score && (
-                                                    <span className="text-xs text-accent font-mono">
+                                                {cluster.final_score !== null && (
+                                                    <span
+                                                        className="text-xs text-accent font-mono"
+                                                        title={buildScoreTooltip(cluster.final_score, cluster.scoring_details)}
+                                                    >
                                                         {cluster.final_score.toFixed(1)}
                                                     </span>
                                                 )}

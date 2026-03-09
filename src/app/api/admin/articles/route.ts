@@ -24,6 +24,7 @@ type DbClusterRow = {
   label: string;
   created_at: string;
   final_score: number | null;
+  scoring_details: unknown | null;
   is_published: boolean;
   image_url: string | null;
   published_on: string | null;
@@ -36,6 +37,7 @@ type AdminClusterRow = {
   title: string;
   created_at: string;
   final_score: number | null;
+  scoring_details: unknown | null;
   summary_short: string | null;
   cluster_size: number;
   unique_sources: number;
@@ -109,6 +111,7 @@ export async function GET(request: Request) {
       label,
       created_at,
       final_score,
+      scoring_details,
       is_published,
       image_url,
       published_on,
@@ -239,6 +242,7 @@ export async function GET(request: Request) {
         title: cluster.label,
         created_at: cluster.created_at,
         final_score: cluster.final_score,
+        scoring_details: cluster.scoring_details,
         summary_short: summaryRecord
           ? JSON.stringify({
             title: summaryRecord.title,
