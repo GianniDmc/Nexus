@@ -15,9 +15,9 @@ export async function POST(request: Request) {
         // 1. Fetch Cluster Articles
         const { data: articles, error: fetchError } = await supabase
             .from('articles')
-            .select('id, title, content, source_name, final_score, image_url')
+            .select('id, title, content, source_name, image_url')
             .eq('cluster_id', id)
-            .order('final_score', { ascending: false });
+            .order('created_at', { ascending: false });
 
         if (fetchError || !articles || articles.length === 0) {
             return NextResponse.json({ error: 'Articles not found for this cluster' }, { status: 404 });

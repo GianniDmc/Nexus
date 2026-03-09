@@ -1,7 +1,7 @@
 'use client';
 
 import { motion, useMotionValue, useTransform, PanInfo } from 'framer-motion';
-import { Check, Newspaper, Bookmark, Archive } from 'lucide-react';
+import { Check, Newspaper, Bookmark, Archive, Star } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
@@ -112,6 +112,11 @@ export function SwipeableArticleCard({
                                 <span className="text-[10px] font-medium text-white/90 bg-black/30 backdrop-blur px-2 py-0.5 rounded shadow-sm">
                                     {formatDistanceToNow(new Date(article.published_at), { locale: fr, addSuffix: true })}
                                 </span>
+                                {sortBy === 'score' && article.final_score && (
+                                    <span className="text-[10px] font-bold text-accent bg-white/90 backdrop-blur px-2 py-0.5 rounded flex items-center gap-1 shadow-sm">
+                                        <Star className="w-3 h-3 fill-accent" /> {article.final_score.toFixed(1)}
+                                    </span>
+                                )}
                                 {isRead && <Check className="w-4 h-4 text-green-400 bg-black/50 rounded-full p-0.5" />}
                             </div>
                             <h2 className="text-xl font-serif font-bold text-foreground leading-tight mb-2 group-hover:text-accent transition-colors drop-shadow-md">
@@ -169,6 +174,13 @@ export function SwipeableArticleCard({
                                         <span className="flex items-center gap-1 text-[9px] text-muted-foreground bg-secondary/50 px-1.5 py-0.5 rounded-full">
                                             <Newspaper className="w-3 h-3" />
                                             {article.source_count}
+                                        </span>
+                                    )}
+
+                                    {sortBy === 'score' && article.final_score && (
+                                        <span className="flex items-center gap-1 text-[9px] font-bold text-accent bg-accent/10 px-1.5 py-0.5 rounded-full ml-auto">
+                                            <Star className="w-2.5 h-2.5 fill-accent" />
+                                            {article.final_score.toFixed(1)}
                                         </span>
                                     )}
 

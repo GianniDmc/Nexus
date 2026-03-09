@@ -569,11 +569,6 @@ export function ClusterManager() {
                                                                             )}
                                                                         </div>
                                                                         <h4 className="text-sm font-medium leading-snug">{article.title}</h4>
-                                                                        {article.score && (
-                                                                            <div className="text-[10px] text-muted mt-1">
-                                                                                Score: <span className="font-mono text-accent">{article.score.toFixed(1)}</span>
-                                                                            </div>
-                                                                        )}
                                                                     </div>
                                                                     <a
                                                                         href={article.url}
