@@ -14,9 +14,9 @@ export async function GET(request: Request) {
 
         const { data: articles, error } = await supabase
             .from('articles')
-            .select('id, title, source_name, source_url, published_at, final_score')
+            .select('id, title, source_name, source_url, published_at')
             .eq('cluster_id', clusterId)
-            .order('final_score', { ascending: false, nullsFirst: false });
+            .order('created_at', { ascending: false, nullsFirst: false });
 
         if (error) throw error;
 
@@ -28,8 +28,7 @@ export async function GET(request: Request) {
             source_name: a.source_name, // Explicit mapping for key consistency
             url: a.source_url,
             source_url: a.source_url,
-            published_at: a.published_at,
-            score: a.final_score
+            published_at: a.published_at
         }));
 
         return NextResponse.json({ articles: mappedArticles });
