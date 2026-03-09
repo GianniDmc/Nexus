@@ -405,10 +405,12 @@ export async function generateEmbedding(text: string, apiKey?: string) {
           model = getGenAI()!.getGenerativeModel({ model: `models/${embeddingModel}` });
         }
 
-        const result = await model.embedContent({
+        const embeddingRequest = {
           content: { role: 'user', parts: [{ text }] },
           outputDimensionality: 768
-        });
+        } as unknown as Parameters<typeof model.embedContent>[0];
+
+        const result = await model.embedContent(embeddingRequest);
 
         console.log(`[LLM] ✅ Gemini/${embeddingModel} — ${keySource}${attempt > 0 ? ` (retry ${attempt})` : ''}`);
         return result.embedding.values;
