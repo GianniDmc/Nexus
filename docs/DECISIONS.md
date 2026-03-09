@@ -40,6 +40,7 @@ Ce document consigne les choix techniques structurants du projet **App Curation 
 | ADR-032 | 2026-02-24 | Ingest incrémental + skip_scrape configurable | Validé |
 | ADR-033 | 2026-02-26 | Simplification Pipeline Cron (Budget Global) | Validé |
 | ADR-034 | 2026-03-08 | Scoring multi-critères avec chain-of-thought | Validé |
+| ADR-035 | 2026-03-09 | Routing LLM configurable + fallback multi-modèles | Validé |
 
 ---
 
@@ -755,3 +756,28 @@ Le scoring des clusters reposait sur un score global opaque (0-10) demandé au L
 ### Conséquences
 - **Positif** : Scoring auditable (reasoning + sous-scores), calibré (exemples), et ajustable (poids modifiables sans changer le prompt).
 - **Négatif** : Les scores existants ne sont pas rétro-compatibles (pas de `scoring_details`). Surveiller la distribution 48-72h pour valider le seuil 7.5.
+
+---
+
+## ADR-035 : Routing LLM configurable + fallback multi-modèles
+
+### Contexte
+Les appels Gemini pouvaient échouer malgré une clé payante (pics de charge, erreurs réseau ponctuelles), avec un unique modèle `gemini-3-flash-preview` pour chaque tier. La stratégie était dispersée et difficile à ajuster sans modifier plusieurs fichiers.
+
+### Décision
+1. **Source de vérité unique** : introduire `src/lib/ai-model-strategy.ts` pour centraliser modèles, ordre providers, retries et délais.
+2. **Fallback intra-provider** : essayer plusieurs modèles Gemini par tier (`fast`/`smart`) avant de basculer vers un autre provider.
+3. **Fallback inter-provider** : conserver la chaîne cross-provider (OpenAI/Anthropic/Gemini/Groq) avec ordre configurable par env.
+4. **Embeddings robustes** : appliquer la même logique de liste de modèles + retry pour `gemini-embedding-*`.
+5. **Configuration runtime** : exposer des variables d'environnement (`LLM_GEMINI_*`, `LLM_*_PROVIDER_ORDER`, `LLM_MAX_ATTEMPTS_PER_MODEL`, etc.).
+
+### Fichiers impactés
+- `src/lib/ai-model-strategy.ts` (nouveau)
+- `src/lib/ai.ts`
+- `src/app/api/admin/test-provider/route.ts`
+- `.env.example`
+- `docs/ARCHITECTURE.md`
+
+### Conséquences
+- **Positif** : meilleure résilience aux indisponibilités modèle, tuning rapide sans redéploiement de code, stratégie explicite et auditables.
+- **Négatif** : surface de configuration plus large, nécessitant une discipline de versioning des variables d'environnement.

@@ -1,6 +1,8 @@
 import OpenAI from 'openai';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import Anthropic from '@anthropic-ai/sdk';
+import { getModelRoutingStrategy, type ModelTier, type ProviderName } from './ai-model-strategy';
+import { SCORING_CONFIG, computeWeightedScore, type ScoringDetails } from './scoring-config';
 
 // Lazy initialization for Groq to ensure env vars are loaded
 let _groq: OpenAI | null = null;
@@ -33,119 +35,222 @@ export interface AIOverrideConfig {
 }
 
 // Helpers
-const maxLlmAttempts = 3;
-const baseRetryDelayMs = 2000;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const jitter = (max: number) => Math.floor(Math.random() * max);
+
+const getErrorMessage = (error: unknown): string => {
+  if (error instanceof Error) return error.message;
+  return String(error);
+};
+
+const toShortErrorMessage = (message: string) =>
+  message.includes(']')
+    ? message.substring(message.lastIndexOf(']') + 2, message.lastIndexOf(']') + 82)
+    : message.substring(0, 80);
+
+const shouldRetrySameModel = (message: string): boolean => {
+  const lowered = message.toLowerCase();
+  if (lowered.includes('404')) return false;
+  if (lowered.includes('not found')) return false;
+  if (lowered.includes('does not exist')) return false;
+  if (lowered.includes('unsupported')) return false;
+  if (lowered.includes('permission denied')) return false;
+  if (lowered.includes('insufficient permissions')) return false;
+  return true;
+};
+
+const getProviderOrder = (
+  preferredProvider: AIOverrideConfig['preferredProvider'],
+  strategy: ReturnType<typeof getModelRoutingStrategy>
+): ProviderName[] => {
+  if (preferredProvider === 'openai' || preferredProvider === 'anthropic' || preferredProvider === 'gemini') {
+    return strategy.preferredProviderFallbackOrder[preferredProvider];
+  }
+  return strategy.autoProviderOrder;
+};
+
+type ChatPayload = Omit<OpenAI.Chat.Completions.ChatCompletionCreateParams, 'stream'> & { stream?: false };
+type NormalizedChatCompletion = { choices: Array<{ message: { content: string } }> };
+
+const normalizeText = (value: unknown): string => {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) {
+    return value
+      .map((part) => {
+        if (typeof part === 'string') return part;
+        if (part && typeof part === 'object' && 'text' in part) {
+          const maybeText = (part as { text?: unknown }).text;
+          return typeof maybeText === 'string' ? maybeText : '';
+        }
+        return '';
+      })
+      .filter(Boolean)
+      .join('\n');
+  }
+  return '';
+};
 
 const createChatCompletion = async (
-  payload: Omit<OpenAI.Chat.Completions.ChatCompletionCreateParams, 'stream'> & { stream?: false },
+  payload: ChatPayload,
   overrideConfig?: AIOverrideConfig,
-  modelTier: 'fast' | 'smart' = 'smart'
-): Promise<any> => {
+  modelTier: ModelTier = 'smart'
+): Promise<NormalizedChatCompletion> => {
+  const strategy = getModelRoutingStrategy();
   let lastError: unknown;
-  const pref = overrideConfig?.preferredProvider || 'auto';
+  const providerOrder = getProviderOrder(overrideConfig?.preferredProvider || 'auto', strategy);
 
   const getPrompt = () => {
     if (Array.isArray(payload.messages)) {
-      return payload.messages.map((m: any) => `${m.role === 'user' ? '' : '[System/Context]: '}${m.content}`).join('\n');
+      return payload.messages
+        .map((message) => {
+          const role = typeof message.role === 'string' ? message.role : 'user';
+          const content = normalizeText((message as { content?: unknown }).content);
+          return `${role === 'user' ? '' : '[System/Context]: '}${content}`;
+        })
+        .join('\n');
     }
     return "Requete: " + JSON.stringify(payload);
   };
 
-  // 1. Try user-provided OpenAI
-  if ((pref === 'openai' || pref === 'auto') && overrideConfig?.openaiKey) {
-    const model = modelTier === 'fast' ? 'gpt-5-mini' : 'gpt-5.2';
-    for (let attempt = 0; attempt < maxLlmAttempts; attempt += 1) {
-      try {
-        const client = new OpenAI({ apiKey: overrideConfig.openaiKey });
-        const result = await client.chat.completions.create({
-          ...payload,
-          model,
-          stream: false
-        });
-        console.log(`[LLM] ✅ OpenAI/${model} (${modelTier}) — (user paid key)${attempt > 0 ? ` (retry ${attempt})` : ''}`);
-        return result;
-      } catch (e: unknown) {
-        lastError = e;
-        const msg = e instanceof Error ? e.message : String(e);
-        const delay = baseRetryDelayMs * Math.pow(2, attempt);
-        console.warn(`[LLM] ⚠️ OpenAI/${model} attempt ${attempt + 1}/${maxLlmAttempts} failed: ${msg.substring(0, 80)}`);
-        if (attempt < maxLlmAttempts - 1) await sleep(delay);
-      }
-    }
-  }
+  const prompt = getPrompt();
 
-  // 2. Try user-provided Anthropic
-  if ((pref === 'anthropic' || pref === 'auto') && overrideConfig?.anthropicKey) {
-    const model = modelTier === 'fast' ? 'claude-haiku-4-5' : 'claude-sonnet-4-5-20250929';
-    for (let attempt = 0; attempt < maxLlmAttempts; attempt += 1) {
-      try {
-        const client = new Anthropic({ apiKey: overrideConfig.anthropicKey });
-        const response = await client.messages.create({
-          model,
-          max_tokens: 4096,
-          messages: [{ role: 'user', content: getPrompt() }]
-        });
-        const text = response.content[0].type === 'text' ? response.content[0].text : '';
-        console.log(`[LLM] ✅ Anthropic/${model} (${modelTier}) — (user paid key)${attempt > 0 ? ` (retry ${attempt})` : ''}`);
-        return { choices: [{ message: { content: text } }] };
-      } catch (e: unknown) {
-        lastError = e;
-        const msg = e instanceof Error ? e.message : String(e);
-        const delay = baseRetryDelayMs * Math.pow(2, attempt);
-        console.warn(`[LLM] ⚠️ Anthropic/${model} attempt ${attempt + 1}/${maxLlmAttempts} failed: ${msg.substring(0, 80)}`);
-        if (attempt < maxLlmAttempts - 1) await sleep(delay);
-      }
-    }
-  }
-
-  // 3. Try Gemini (user-provided or default)
-  const geminiEnvPaid = process.env.PAID_GOOGLE_API_KEY;
-  const geminiEnvFree = process.env.GOOGLE_API_KEY;
-  const geminiKey = overrideConfig?.geminiKey || geminiEnvPaid || geminiEnvFree;
-  const geminiModelName = 'gemini-3-flash-preview';
-
-  if ((pref === 'gemini' || pref === 'auto') && geminiKey) {
-    const keySource = overrideConfig?.geminiKey ? '(user paid key)' : (geminiEnvPaid ? '(env paid key)' : '(env free key)');
-    const genAI = overrideConfig?.geminiKey ? new GoogleGenerativeAI(overrideConfig.geminiKey) : getGenAI();
-
-    if (genAI) {
-      for (let attempt = 0; attempt < maxLlmAttempts; attempt += 1) {
-        try {
-          const geminiModel = genAI.getGenerativeModel({
-            model: geminiModelName,
-            generationConfig: { responseMimeType: payload.response_format?.type === 'json_object' ? "application/json" : "text/plain" }
-          });
-          const result = await geminiModel.generateContent(getPrompt());
-          console.log(`[LLM] ✅ Gemini/${geminiModelName} (${modelTier}) — ${keySource}${attempt > 0 ? ` (retry ${attempt})` : ''}`);
-          return { choices: [{ message: { content: result.response.text() } }] };
-        } catch (e: unknown) {
-          lastError = e;
-          const msg = e instanceof Error ? e.message : String(e);
-          const shortMsg = msg.includes(']') ? msg.substring(msg.lastIndexOf(']') + 2, msg.lastIndexOf(']') + 80) : msg.substring(0, 80);
-          const delay = baseRetryDelayMs * Math.pow(2, attempt);
-          console.warn(`[LLM] ⚠️ Gemini/${geminiModelName} attempt ${attempt + 1}/${maxLlmAttempts} failed: ${shortMsg}`);
-          if (attempt < maxLlmAttempts - 1) await sleep(delay);
+  for (const provider of providerOrder) {
+    if (provider === 'openai' && overrideConfig?.openaiKey) {
+      const client = new OpenAI({ apiKey: overrideConfig.openaiKey });
+      for (const model of strategy.openai[modelTier]) {
+        for (let attempt = 0; attempt < strategy.maxAttemptsPerModel; attempt += 1) {
+          try {
+            const result = await client.chat.completions.create({
+              ...payload,
+              model,
+              stream: false
+            });
+            console.log(`[LLM] ✅ OpenAI/${model} (${modelTier}) — (user paid key)${attempt > 0 ? ` (retry ${attempt})` : ''}`);
+            return { choices: [{ message: { content: normalizeText(result.choices[0]?.message?.content) } }] };
+          } catch (error: unknown) {
+            lastError = error;
+            const message = getErrorMessage(error);
+            const shortMessage = toShortErrorMessage(message);
+            console.warn(
+              `[LLM] ⚠️ OpenAI/${model} attempt ${attempt + 1}/${strategy.maxAttemptsPerModel} failed: ${shortMessage}`
+            );
+            const hasNextRetry = attempt < strategy.maxAttemptsPerModel - 1 && shouldRetrySameModel(message);
+            if (hasNextRetry) {
+              const delay = strategy.baseRetryDelayMs * Math.pow(2, attempt) + jitter(250);
+              await sleep(delay);
+            } else {
+              break;
+            }
+          }
         }
       }
     }
-  }
 
-  // 4. Fallback to Groq (Llama 3)
-  const groqModel = 'llama-3.3-70b-versatile';
-  const groqClient = getGroq();
-  if (groqClient) {
-    for (let attempt = 0; attempt < maxLlmAttempts; attempt += 1) {
-      try {
-        const result = await groqClient.chat.completions.create({ ...payload, stream: false });
-        console.log(`[LLM] ✅ Groq/${groqModel} (${modelTier}) — fallback${attempt > 0 ? ` (retry ${attempt})` : ''}`);
-        return result;
-      } catch (error: unknown) {
-        lastError = error;
-        const msg = error instanceof Error ? error.message : String(error);
-        const delay = baseRetryDelayMs * Math.pow(2, attempt);
-        console.warn(`[LLM] ⚠️ Groq attempt ${attempt + 1}/${maxLlmAttempts} failed: ${msg.substring(0, 80)}`);
-        if (attempt < maxLlmAttempts - 1) await sleep(delay);
+    if (provider === 'anthropic' && overrideConfig?.anthropicKey) {
+      const client = new Anthropic({ apiKey: overrideConfig.anthropicKey });
+      for (const model of strategy.anthropic[modelTier]) {
+        for (let attempt = 0; attempt < strategy.maxAttemptsPerModel; attempt += 1) {
+          try {
+            const response = await client.messages.create({
+              model,
+              max_tokens: 4096,
+              messages: [{ role: 'user', content: prompt }]
+            });
+            const text = response.content[0].type === 'text' ? response.content[0].text : '';
+            console.log(
+              `[LLM] ✅ Anthropic/${model} (${modelTier}) — (user paid key)${attempt > 0 ? ` (retry ${attempt})` : ''}`
+            );
+            return { choices: [{ message: { content: text } }] };
+          } catch (error: unknown) {
+            lastError = error;
+            const message = getErrorMessage(error);
+            const shortMessage = toShortErrorMessage(message);
+            console.warn(
+              `[LLM] ⚠️ Anthropic/${model} attempt ${attempt + 1}/${strategy.maxAttemptsPerModel} failed: ${shortMessage}`
+            );
+            const hasNextRetry = attempt < strategy.maxAttemptsPerModel - 1 && shouldRetrySameModel(message);
+            if (hasNextRetry) {
+              const delay = strategy.baseRetryDelayMs * Math.pow(2, attempt) + jitter(250);
+              await sleep(delay);
+            } else {
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    if (provider === 'gemini') {
+      const geminiEnvPaid = process.env.PAID_GOOGLE_API_KEY;
+      const geminiEnvFree = process.env.GOOGLE_API_KEY;
+      const geminiKey = overrideConfig?.geminiKey || geminiEnvPaid || geminiEnvFree;
+      if (!geminiKey) continue;
+
+      const keySource = overrideConfig?.geminiKey ? '(user paid key)' : (geminiEnvPaid ? '(env paid key)' : '(env free key)');
+      const genAI = overrideConfig?.geminiKey ? new GoogleGenerativeAI(overrideConfig.geminiKey) : getGenAI();
+      if (!genAI) continue;
+
+      for (const model of strategy.gemini[modelTier]) {
+        for (let attempt = 0; attempt < strategy.maxAttemptsPerModel; attempt += 1) {
+          try {
+            const generationConfig: Record<string, unknown> = {
+              responseMimeType: payload.response_format?.type === 'json_object' ? 'application/json' : 'text/plain'
+            };
+            if (typeof payload.temperature === 'number') generationConfig.temperature = payload.temperature;
+            if (typeof payload.max_tokens === 'number') generationConfig.maxOutputTokens = payload.max_tokens;
+
+            const geminiModel = genAI.getGenerativeModel({ model, generationConfig });
+            const result = await geminiModel.generateContent(prompt);
+            console.log(`[LLM] ✅ Gemini/${model} (${modelTier}) — ${keySource}${attempt > 0 ? ` (retry ${attempt})` : ''}`);
+            return { choices: [{ message: { content: result.response.text() } }] };
+          } catch (error: unknown) {
+            lastError = error;
+            const message = getErrorMessage(error);
+            const shortMessage = toShortErrorMessage(message);
+            console.warn(
+              `[LLM] ⚠️ Gemini/${model} attempt ${attempt + 1}/${strategy.maxAttemptsPerModel} failed: ${shortMessage}`
+            );
+            const hasNextRetry = attempt < strategy.maxAttemptsPerModel - 1 && shouldRetrySameModel(message);
+            if (hasNextRetry) {
+              const delay = strategy.baseRetryDelayMs * Math.pow(2, attempt) + jitter(250);
+              await sleep(delay);
+            } else {
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    if (provider === 'groq') {
+      const groqClient = getGroq();
+      if (!groqClient) continue;
+      for (const model of strategy.groq[modelTier]) {
+        for (let attempt = 0; attempt < strategy.maxAttemptsPerModel; attempt += 1) {
+          try {
+            const result = await groqClient.chat.completions.create({
+              ...payload,
+              model,
+              stream: false
+            });
+            console.log(`[LLM] ✅ Groq/${model} (${modelTier}) — fallback${attempt > 0 ? ` (retry ${attempt})` : ''}`);
+            return { choices: [{ message: { content: normalizeText(result.choices[0]?.message?.content) } }] };
+          } catch (error: unknown) {
+            lastError = error;
+            const message = getErrorMessage(error);
+            const shortMessage = toShortErrorMessage(message);
+            console.warn(
+              `[LLM] ⚠️ Groq/${model} attempt ${attempt + 1}/${strategy.maxAttemptsPerModel} failed: ${shortMessage}`
+            );
+            const hasNextRetry = attempt < strategy.maxAttemptsPerModel - 1 && shouldRetrySameModel(message);
+            if (hasNextRetry) {
+              const delay = strategy.baseRetryDelayMs * Math.pow(2, attempt) + jitter(250);
+              await sleep(delay);
+            } else {
+              break;
+            }
+          }
+        }
       }
     }
   }
@@ -153,9 +258,6 @@ const createChatCompletion = async (
   console.error('[LLM] ❌ All providers failed');
   throw lastError;
 };
-
-// Cluster-Centric Scoring (multi-critères + chain-of-thought)
-import { SCORING_CONFIG, computeWeightedScore, type ScoringDetails } from './scoring-config';
 
 export async function scoreCluster(
   articles: { id: string; title: string; content: string; source_name: string; published_at?: string | null }[],
@@ -285,39 +387,48 @@ FORMAT JSON:
 }
 
 export async function generateEmbedding(text: string, apiKey?: string) {
-  const embeddingModel = 'gemini-embedding-001';
+  const strategy = getModelRoutingStrategy();
+  const embeddingModels = strategy.geminiEmbedding;
   const keySource = apiKey ? '(user paid key)' : (process.env.PAID_GOOGLE_API_KEY ? '(env paid key)' : '(env free key)');
 
   console.log(`[LLM] 🎯 Embedding generation`);
 
-  for (let attempt = 0; attempt < maxLlmAttempts; attempt += 1) {
-    try {
-      let model;
-      if (apiKey) {
-        const genAI = new GoogleGenerativeAI(apiKey);
-        model = genAI.getGenerativeModel({ model: `models/${embeddingModel}` });
-      } else {
-        if (!getGenAI()) return null;
-        model = getGenAI()!.getGenerativeModel({ model: `models/${embeddingModel}` });
+  for (const embeddingModel of embeddingModels) {
+    for (let attempt = 0; attempt < strategy.maxAttemptsPerModel; attempt += 1) {
+      try {
+        let model;
+        if (apiKey) {
+          const genAI = new GoogleGenerativeAI(apiKey);
+          model = genAI.getGenerativeModel({ model: `models/${embeddingModel}` });
+        } else {
+          if (!getGenAI()) return null;
+          model = getGenAI()!.getGenerativeModel({ model: `models/${embeddingModel}` });
+        }
+
+        const result = await model.embedContent({
+          content: { role: 'user', parts: [{ text }] },
+          outputDimensionality: 768
+        });
+
+        console.log(`[LLM] ✅ Gemini/${embeddingModel} — ${keySource}${attempt > 0 ? ` (retry ${attempt})` : ''}`);
+        return result.embedding.values;
+      } catch (error: unknown) {
+        const message = getErrorMessage(error);
+        const shortMessage = toShortErrorMessage(message);
+        console.warn(
+          `[LLM] ⚠️ Gemini/${embeddingModel} attempt ${attempt + 1}/${strategy.maxAttemptsPerModel} failed: ${shortMessage}`
+        );
+        const hasNextRetry = attempt < strategy.maxAttemptsPerModel - 1 && shouldRetrySameModel(message);
+        if (hasNextRetry) {
+          const delay = strategy.baseRetryDelayMs * Math.pow(2, attempt) + jitter(250);
+          await sleep(delay);
+        } else {
+          break;
+        }
       }
-
-      const result = await model.embedContent({
-        content: { role: 'user', parts: [{ text }] },
-        outputDimensionality: 768
-      } as any);
-
-      console.log(`[LLM] ✅ Gemini/${embeddingModel} — ${keySource}${attempt > 0 ? ` (retry ${attempt})` : ''}`);
-      return result.embedding.values;
-    } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : String(error);
-      const shortMsg = msg.includes(']') ? msg.substring(msg.lastIndexOf(']') + 2, msg.lastIndexOf(']') + 80) : msg.substring(0, 80);
-      const delay = baseRetryDelayMs * Math.pow(2, attempt);
-      console.warn(`[LLM] ⚠️ Gemini/${embeddingModel} attempt ${attempt + 1}/${maxLlmAttempts} failed: ${shortMsg}`);
-      if (attempt < maxLlmAttempts - 1) await sleep(delay);
     }
   }
 
   console.error('[LLM] ❌ Embedding generation failed completely');
   return null;
 }
-

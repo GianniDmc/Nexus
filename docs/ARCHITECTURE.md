@@ -18,21 +18,37 @@ graph TD
 - **`/api/admin/refresh`** : enchaîne ingestion + 1–N cycles de processing bornés.
 - **`/api/digest`** : génère un digest à la demande à partir des articles résumés des dernières 24h.
 
-## 2. Stratégie IA (Janvier 2026)
-Le moteur applique une stratégie **"Tiered AI"** et sélectionne automatiquement le meilleur provider disponible.
+## 2. Stratégie IA (Mars 2026)
+Le moteur applique une stratégie **"Tiered AI"** avec **fallback multi-modèles intra-provider** avant fallback inter-provider.
+La source de vérité du routing est `src/lib/ai-model-strategy.ts` (modifiable par variables d'environnement).
 
 | Tâche | Tier | Modèles supportés (si clé dispo) | Fallback |
 | :--- | :--- | :--- | :--- |
-| **Scoring** | **FAST** | `gpt-5-mini` / `claude-haiku-4-5` / `gemini-3-flash-preview` | `llama-3.3-70b-versatile` (Groq) |
-| **Rewriting** | **SMART** | `gpt-5.2` / `claude-sonnet-4-5-20250929` / `gemini-3-flash-preview` | `llama-3.3-70b-versatile` (Groq) |
-| **Embeddings** | **VECTOR** | `text-embedding-004` (Gemini) | — |
+| **Scoring** | **FAST** | OpenAI: `gpt-5-mini` • Anthropic: `claude-haiku-4-5` • Gemini: `gemini-3.1-flash-lite-preview` → `gemini-3-flash-preview` → `gemini-2.5-flash` → `gemini-2.5-flash-lite` | Groq: `llama-3.3-70b-versatile` |
+| **Rewriting** | **SMART** | OpenAI: `gpt-5.2` • Anthropic: `claude-sonnet-4-5-20250929` • Gemini: `gemini-3-flash-preview` → `gemini-2.5-flash` → `gemini-2.5-flash-lite` (`3.1-pro`/`2.5-pro` optionnels via flag) | Groq: `llama-3.3-70b-versatile` |
+| **Embeddings** | **VECTOR** | Gemini: `gemini-embedding-001` (liste configurable) | — |
 
 ### Sélection des providers
-Ordre de priorité côté serveur :
-1. **Clés utilisateur** (UI Admin, stockées en localStorage)
-2. **Clés "payantes" d'environnement** (`PAID_*`)
-3. **Clés par défaut** (ex: `GOOGLE_API_KEY`)
-4. **Fallback Groq** (`GROQ_API_KEY`)
+Ordre par défaut (`preferredProvider = auto`) :
+1. `gemini`
+2. `openai`
+3. `anthropic`
+4. `groq`
+
+Ordre si préférence explicite :
+1. Provider préféré d'abord
+2. Puis fallback cross-provider
+3. Groq en dernier filet
+
+Variables clés pour le tuning runtime (sans code) :
+- `LLM_GEMINI_FAST_MODELS`
+- `LLM_GEMINI_SMART_MODELS`
+- `LLM_GEMINI_EMBEDDING_MODELS`
+- `LLM_AUTO_PROVIDER_ORDER`
+- `LLM_GEMINI_PROVIDER_ORDER`
+- `LLM_MAX_ATTEMPTS_PER_MODEL`
+- `LLM_BASE_RETRY_DELAY_MS`
+- `GEMINI_ENABLE_PRO_FALLBACK`
 
 ### Throughput Mode (gratuit vs payant)
 Le débit `process` dépend de la présence d'une clé payante active (user key ou `PAID_*` env).  

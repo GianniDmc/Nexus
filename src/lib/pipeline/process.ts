@@ -22,7 +22,7 @@ function resolveEffectiveAiConfig(config?: AIOverrideConfig): AIOverrideConfig {
     openaiKey: config?.openaiKey || envPaidOpenAI,
     anthropicKey: config?.anthropicKey || envPaidAnthropic,
     geminiKey: config?.geminiKey || envPaidGoogle,
-    preferredProvider: config?.preferredProvider || (envPaidOpenAI ? 'openai' : envPaidAnthropic ? 'anthropic' : 'auto'),
+    preferredProvider: config?.preferredProvider || 'auto',
   };
 }
 

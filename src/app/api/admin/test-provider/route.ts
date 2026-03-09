@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { getGeminiHealthcheckModel } from '@/lib/ai-model-strategy';
 
 export async function POST(request: Request) {
     try {
@@ -31,15 +32,17 @@ export async function POST(request: Request) {
 
         if (provider === 'gemini') {
             const genAI = new GoogleGenerativeAI(apiKey);
-            const model = genAI.getGenerativeModel({ model: 'gemini-3-flash-preview' });
+            const modelName = getGeminiHealthcheckModel();
+            const model = genAI.getGenerativeModel({ model: modelName });
             await model.generateContent('Test');
             return NextResponse.json({ success: true });
         }
 
         return NextResponse.json({ success: false, error: 'Unknown provider' }, { status: 400 });
 
-    } catch (error: any) {
-        console.error('Provider test failed:', error.message);
-        return NextResponse.json({ success: false, error: error.message }, { status: 200 });
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error('Provider test failed:', message);
+        return NextResponse.json({ success: false, error: message }, { status: 200 });
     }
 }

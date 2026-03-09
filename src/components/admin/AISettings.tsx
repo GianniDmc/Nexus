@@ -11,13 +11,14 @@ interface AIConfig {
 }
 
 const STORAGE_KEY = 'nexus-ai-config';
+const DEFAULT_PREFERRED_PROVIDER: AIConfig['preferredProvider'] = 'gemini';
 
 export function AISettings() {
     const [config, setConfig] = useState<AIConfig>({
         openaiKey: '',
         anthropicKey: '',
         geminiKey: '',
-        preferredProvider: 'auto'
+        preferredProvider: DEFAULT_PREFERRED_PROVIDER
     });
     const [testing, setTesting] = useState<string | null>(null);
     const [testResults, setTestResults] = useState<Record<string, boolean | null>>({});
@@ -45,7 +46,7 @@ export function AISettings() {
             openaiKey: '',
             anthropicKey: '',
             geminiKey: '',
-            preferredProvider: 'auto'
+            preferredProvider: DEFAULT_PREFERRED_PROVIDER
         };
         setConfig(emptyConfig);
         localStorage.removeItem(STORAGE_KEY);

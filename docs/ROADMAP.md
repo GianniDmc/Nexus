@@ -32,6 +32,7 @@ Ce document recense les améliorations techniques et fonctionnelles prévues pou
 - [x] **Execution Policy centralisée** : profils runtime `api/manual/refresh/gha` pour ingest + process, avec bornes de sécurité sur overrides.
 - [x] **Pipeline Process modulaire** : refactor `process.ts` en orchestrateur + étapes dédiées (`embedding`, `clustering`, `scoring`, `rewriting`) avec contexte/types partagés.
 - [x] **Tuning GitHub Actions** : Simplification cron avec budget global dynamique `MAX_EXECUTION_MS=1440000` (24 minutes) et isolation stricte du drain (les étapes suivantes sont skippées si la précédente bloque).
+- [x] **Routing LLM configurable** : stratégie centralisée par provider/tier avec fallback multi-modèles Gemini + ordre providers configurable par env.
 
 ## 🔮 Améliorations Futures (Backlog)
 
@@ -61,7 +62,8 @@ Ce document recense les améliorations techniques et fonctionnelles prévues pou
 ### 0c. Pipeline & IA
 - [ ] **[P0] Parsing robuste JSON** : validation des réponses LLM (schema + fallback).
 - [ ] **[P1] Prompts plus compacts** : limiter le nombre de sources envoyées (top N par score/fraîcheur).
-- [ ] **[P1] Embeddings resilients** : retries + backoff sur `generateEmbedding`.
+- [x] **[P1] Embeddings resilients** : retries + backoff + liste de modèles Gemini configurable sur `generateEmbedding`.
+- [ ] **[P0] Circuit-breaker provider** : désactiver temporairement un provider après N erreurs consécutives pour éviter le thrashing pendant les pics.
 - [ ] **[P0] Verrouillage pipeline** : remplacer le lock applicatif par un lock SQL atomique (`pg_advisory_lock`).
 
 ### 0d. Sécurité & Ops
