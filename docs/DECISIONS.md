@@ -798,3 +798,43 @@ Les appels Gemini pouvaient échouer malgré une clé payante (pics de charge, e
 ### Conséquences
 - **Positif** : meilleure résilience aux indisponibilités modèle, tuning rapide sans redéploiement de code, stratégie explicite et auditables.
 - **Négatif** : surface de configuration plus large, nécessitant une discipline de versioning des variables d'environnement.
+
+---
+
+## ADR-036 : Sécurisation RLS + optimisation egress Supabase
+
+### Contexte
+Le projet ne comportait aucune RLS (Row Level Security) sur les tables publiques (`articles`, `clusters`, `sources`), permettant potentiellement à un utilisateur de muter les données depuis le frontend public avec la clé anonyme (bien que non exploité par l'app). De plus, l'egress (bande passante sortante) Supabase explosait (36 GB pour un quota de 5 GB), causé d'une part par des sélections réseau massives (`select(*)` incluant les vecteurs et les gros objets JSON) sur les routes et composants.
+
+### Décision
+1. **Activation stricte RLS** sur toutes les tables publiques sans impact pour l'admin (les routes API internes utilisent `service_role` key qui bypass la RLS). Seule une policy `SELECT` anonyme a été accordée pour le frontend public.
+2. **Sélections ciblées** (Quick Wins) : remplacement strict des `.select('*')` par des `.select('col1, col2')` dans `admin/sources/route.ts` et la page article `article/[id]`.
+3. **Nettoyage automatique** du champ `embedding` (768 dim vector) via un script de cron SQL mettant à NULL les vecteurs des articles archivés de plus de 30 jours, avec mise en place du garde-fou `.is('cluster_id', null)` dans `embedding-step.ts` pour empêcher les boucles de retraitement.
+
+### Fichiers impactés
+- `migrations/20260311155413_enable_rls_public_tables.sql`
+- `src/lib/pipeline/steps/embedding-step.ts`
+
+### Conséquences
+- **Positif** : Zéro faille de mutation côté client pub. Baisse immédiate de la taille de la base et réduction massive de l'egress.
+- **Négatif** : Le script de suppression des embeddings limite la capacité de comparaison (similarité de vieux articles), un compromis assumé vu que les news hyper "anciennes" perdent leur utilité en similarité NLP temps réel.
+
+---
+
+## ADR-037 : Migration NewsFeed vers RSC/ISR
+
+### Contexte
+Continuité de l'ADR-036 (Crise d'Egress Supabase). La page d'accueil (Le `NewsFeed`) exécutait depuis le navigateur client une très lourde requête : `.select('*, summaries(*), representative_article(category)')` sur 300 lignes à CHAQUE chargement de page. Ce mode `use client` explosait l'egress et pénalisait les performances (requête gérée par le proxy Next ou directement en client-side Supabase js).
+
+### Décision
+1. La page `/` devient un pur **React Server Component** appelant la base de données de manière interne (via `service_role`), évitant de faire transiter les données jusqu'au client pour un "render" aveugle.
+2. La requête réseau a été extrêmement durcie pour ne sélectionner que les colonnes utiles à la carte (exclusion du corps du document, des vecteurs et des logs d'IA).
+3. **Mise en place de l'ISR** (Incremental Static Regeneration) via `export const revalidate = 60;`. Vercel build et sert la page pré-rendue à tous les visiteurs, l'exécutant au maximum 1 fois par minute.
+
+### Fichiers impactés
+- `src/app/page.tsx`
+- `src/components/NewsFeed.tsx`
+
+### Conséquences
+- **Positif** : L'Egress sur Supabase chute quasiment à ZÉRO pour le frontend ; Vercel Edge Cache absorbe la totalité de la bande passante (Quotas Vercel très généreux: 100GB).
+- **Négatif** : Stale data potentielle jusqu'à 60 secondes entre deux publications. Totalement imperceptible pour les utilisateurs d'une application d'actualité.
