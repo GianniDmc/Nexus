@@ -60,6 +60,11 @@ export default function NewsFeed({ initialItems = [] }: NewsFeedProps) {
   const [items, setItems] = useState<FeedItem[]>(initialItems);
   const [loading, setLoading] = useState(initialItems.length === 0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // Fix d'hydratation : on s'assure que le premier rendu correspond au serveur
+  const [isClient, setIsClient] = useState(false);
+  useEffect(() => setIsClient(true), []);
+
   // Check for desktop to disable swipe-to-close on large screens
   const [isDesktop, setIsDesktop] = useState(false);
   useEffect(() => {
@@ -575,7 +580,7 @@ export default function NewsFeed({ initialItems = [] }: NewsFeedProps) {
 
       {/* RIGHT COLUMN: Article (Full Height Scrollable) */}
       <AnimatePresence mode="wait">
-        {(selectedArticle || (typeof window !== 'undefined' && window.innerWidth >= 1024)) && (
+        {(selectedArticle || (isClient && isDesktop)) && (
           <motion.div
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
