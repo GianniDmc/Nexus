@@ -79,7 +79,7 @@ export async function GET(req: Request) {
         .select('cluster_id, clusters!articles_cluster_id_fkey!inner(final_score)', { count: 'exact', head: true })
         .is('clusters.final_score', null),
       supabase.from('articles').select('*', { count: 'exact', head: true }),
-      supabase.from('articles').select('*', { count: 'exact', head: true }).is('embedding', null),
+      supabase.from('articles').select('*', { count: 'exact', head: true }).is('embedding', null).is('cluster_id', null),
       supabase.from('articles').select('*', { count: 'exact', head: true }).not('embedding', 'is', null),
       supabase.from('articles').select('*', { count: 'exact', head: true }).not('embedding', 'is', null).is('cluster_id', null),
       supabase.from('articles').select('*', { count: 'exact', head: true }).not('cluster_id', 'is', null),

@@ -33,6 +33,7 @@ Ce document recense les améliorations techniques et fonctionnelles prévues pou
 - [x] **Pipeline Process modulaire** : refactor `process.ts` en orchestrateur + étapes dédiées (`embedding`, `clustering`, `scoring`, `rewriting`) avec contexte/types partagés.
 - [x] **Tuning GitHub Actions** : Simplification cron avec budget global dynamique `MAX_EXECUTION_MS=1440000` (24 minutes) et isolation stricte du drain (les étapes suivantes sont skippées si la précédente bloque).
 - [x] **Routing LLM configurable** : stratégie centralisée par provider/tier avec fallback multi-modèles Gemini + ordre providers configurable par env.
+- [x] **Optimisation Supabase** : activation RLS, réduction de l'egress (NewsFeed serveur, requêtes ciblées) et nettoyage incrémental des vieux embeddings.
 
 ## 🔮 Améliorations Futures (Backlog)
 
@@ -71,6 +72,7 @@ Ce document recense les améliorations techniques et fonctionnelles prévues pou
 - [ ] **[P0] Durcir les endpoints admin** : contrôle d’accès et rate‑limit de base sur routes sensibles.
 
 ### 0e. Front & UX
+- [x] **[P1] Migration RSC/ISR** : Le NewsFeed est maintenant servi quasi gratuitement via ISR 60s, réduisant massivement l'egress.
 - [ ] **[P2] Parsing JSON optimisé** : `useMemo` pour éviter les `JSON.parse` multiples.
 - [ ] **[P2] Cache des sources** : mémoriser les sources par cluster pour limiter les requêtes répétées.
 - [ ] **[P2] Nettoyage UI** : retirer les doublons (ex: `getPageTitle()`), simplifier le state.
