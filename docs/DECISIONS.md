@@ -41,6 +41,9 @@ Ce document consigne les choix techniques structurants du projet **App Curation 
 | ADR-033 | 2026-02-26 | Simplification Pipeline Cron (Budget Global) | Validé |
 | ADR-034 | 2026-03-08 | Scoring multi-critères avec chain-of-thought | Validé |
 | ADR-035 | 2026-03-09 | Routing LLM configurable + fallback multi-modèles | Validé |
+| ADR-036 | 2026-03-11 | Sécurisation RLS + optimisation egress Supabase | Validé |
+| ADR-037 | 2026-03-11 | Migration NewsFeed vers RSC/ISR | Validé |
+| ADR-038 | 2026-03-11 | Cache en mémoire (in-memory) pour l'API Stats | Validé |
 
 ---
 
@@ -262,7 +265,21 @@ Configurer l'application en **PWA (Progressive Web App)** standard.
 
 ### Conséquences
 - **Positif** : Installable comme une app native, pas d'interface navigateur (URL bar), expérience immersive.
-- **Négatif** : Gestion du cache navigateur parfois complexe pour les mises à jour (non critique pour une app de contenu).
+- **Négatif** : La transition vers ISR peut introduire un bref décalage (stale data) jusqu'à 60 secondes. Ce délai est jugé parfaitement acceptable pour un flux d'actualités et le gain en coût/bande passante supplante largement cet inconvénient.
+
+---
+
+## ADR-038 : Cache en mémoire (in-memory) pour l'API Stats
+
+### Contexte
+L'interface d'administration `/admin` comporte un tableau de bord global qui s'actualise toutes les 5 secondes (`setInterval`). L'endpoint `/api/admin/stats` exécutait plus de 16 requêtes complexes sur la base Supabase (comptages exacts, filtres, sélections multiples), créant une surcharge du pool de connexions (100% d'utilisation) et impactant gravement les performances globales du serveur (jusqu'à 50s de temps de réponse).
+
+### Décision
+Implémentation d'un **système de cache en mémoire côté Node.js (Vercel Serverless/Node)** sur `/api/admin/stats` avec un TTL de 15 secondes. L'objet `globalCache` est utilisé pour survivre aux reloads et conserver l'état entre les requêtes.
+
+### Conséquences
+- **Positif** : Drastique réduction du trafic sortant vers la base de données. Même avec 10 utilisateurs sur le dashboard admin pingant l'API toutes les 5 secondes, la base ne sera sollicitée qu'une seule fois toutes les 15 secondes. Remédies aux timeouts sur l'ensemble de l'instance.
+- **Négatif** : La vue de la salle de rédaction est légèrement asynchrone (délayée de maximum 15 secondes par rapport au pipeline). Compte tenu des cycles du cron (>120s), c'est imperceptible.
 
 ---
 

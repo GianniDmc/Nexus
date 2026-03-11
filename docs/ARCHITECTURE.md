@@ -191,6 +191,7 @@ Le dashboard `/admin` expose désormais les contrôles de cohérence suivants:
 
 ## 6. Front Public
 - **NewsFeed** :
+    - **Rendu** : Server Component (RSC) avec ISR (`revalidate = 60s`). Les données sont fetchées côté serveur via `service_role` puis passées en props au composant client interactif. **Aucun egress Supabase généré par les visiteurs** (caché Vercel Edge).
     - **Navigation** : Sidebar simplifiée (Temps : Aujourd'hui/Hier/Semaine/Archives) + Pills catégories.
     - **Featured ("À la Une")** : Top 3 ranking (Score pondéré + Consensus) affiché en Hero/Compact au-dessus du flux.
     - **Flux** : Liste chronologique ou par score, cartes avec indicateurs de sources multiples.
@@ -220,6 +221,10 @@ Clustering — garde-fous anti-mega-cluster (mars 2026) :
 - **Seuil de cohérence** : `0.80` — pour rejoindre un cluster existant, l'article doit avoir au moins un match ≥ 0.80 dans ce cluster. Sinon → nouveau cluster.
 - **Sélection du meilleur cluster** : si plusieurs clusters candidats matchent, on retient celui avec la meilleure similarité max (départagé par nombre de matches).
 - Script de maintenance : `npx tsx scripts/break-megacluster.ts` pour éclater les clusters trop volumineux.
+
+Cycle de vie des embeddings :
+- Afin d'économiser de la taille base de données Supabase, les embeddings `(768 dim)` des articles de plus de 30 jours déjà clusterisés sont mis à NULL.
+- **Garde-fou pipeline** : l'étape `embedding` exclut toujours les articles clusterisés (`.is('cluster_id', null)`) pour prévenir les boucles infinies de ré-embedding des anciens articles.
 
 ## 8. Scripts utilitaires
 Des scripts Node.js (`scripts/`) servent aux audits et migrations ponctuelles :
