@@ -9,6 +9,7 @@ export async function runEmbeddingStep(context: ProcessExecutionContext): Promis
       .from('articles')
       .select('id, title, content')
       .is('embedding', null)
+      .is('cluster_id', null) // Garde-fou : ne pas re-embedder les articles déjà clusterisés (permet le nettoyage sûr des vieux embeddings)
       .order('created_at', { ascending: true })
       .limit(processingLimit);
 

@@ -11,7 +11,7 @@ export async function GET() {
         // Get all sources
         const { data: sources, error } = await supabase
             .from('sources')
-            .select('*')
+            .select('id, name, url, category, is_active, created_at, last_fetched_at, skip_scrape')
             .order('created_at', { ascending: false });
 
         if (error) throw error;

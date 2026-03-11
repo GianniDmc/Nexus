@@ -200,6 +200,8 @@ Le dashboard `/admin` expose désormais les contrôles de cohérence suivants:
 
 ## 7. Base de Données (Supabase)
 
+**Sécurité (RLS)** : Les tables principales (`articles`, `clusters`, `sources`, `summaries`) sont sécurisées via *Row Level Security* pour n'autoriser que la lecture publique (SELECT). La table `app_state` et les opérations d'écritures sont strictement réservées au backend (`service_role`).
+
 ### Tables clés
 - **articles** : source brute, `content`, `summary_short` (legacy, utilisé par `/api/digest`), `image_url`, `embedding`, `category`, `cluster_id`.
   - *Index* : `articles_cluster_id_idx` ajouté pour optimiser les jointures de comptage dans l'admin.

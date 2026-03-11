@@ -6,6 +6,7 @@ import { useSearchParams } from 'next/navigation';
 import { Sparkles, ChevronRight, ExternalLink, Filter, ArrowUpDown, Bookmark, Check, Archive, EyeOff, Newspaper, Eye, RefreshCw, Share2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { SwipeableArticleCard } from './SwipeableArticleCard';
+import type { FeedItem } from '@/app/page';
 
 type SortOption = 'date' | 'score';
 
@@ -47,13 +48,17 @@ const saveStoredSet = (key: string, set: Set<string>) => {
   localStorage.setItem(key, JSON.stringify([...set]));
 };
 
-export default function NewsFeed() {
+interface NewsFeedProps {
+  initialItems?: FeedItem[];
+}
+
+export default function NewsFeed({ initialItems = [] }: NewsFeedProps) {
   const searchParams = useSearchParams();
   const filterMode = searchParams.get('filter') || 'today';
   const categoryParam = searchParams.get('category'); // Get category from URL
 
-  const [items, setItems] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [items, setItems] = useState<FeedItem[]>(initialItems);
+  const [loading, setLoading] = useState(initialItems.length === 0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Check for desktop to disable swipe-to-close on large screens
   const [isDesktop, setIsDesktop] = useState(false);
@@ -107,25 +112,23 @@ export default function NewsFeed() {
     setReadingList(getStoredSet(STORAGE_KEYS.READING_LIST));
   }, []);
 
-  // Fetch clusters (published stories)
+  // Refresh: fetch côté client pour rafraîchir manuellement (bouton Refresh)
   const fetchData = useCallback(async () => {
     setLoading(true);
 
-    // New Architecture: Fetch Published Clusters with Summaries
     const { data, error } = await supabase
       .from('clusters')
       .select(`
-          *,
-          summaries (*),
+          id, label, final_score, category, image_url, published_on, created_at,
+          summaries (title, content_tldr, content_full, content_analysis, source_count, image_url),
           representative_article:articles!representative_article_id (category)
         `)
       .eq('is_published', true)
       .order('published_on', { ascending: false })
-      .limit(300); // Increased limit for better archives/history coverage
+      .limit(300);
 
     if (!error && data) {
-      // Map clusters to the existing "Article-like" item structure
-      const mappedItems = data
+      const mappedItems: FeedItem[] = data
         .filter(cluster => {
           if (!cluster.summaries) return false;
           if (Array.isArray(cluster.summaries)) return cluster.summaries.length > 0;
@@ -133,43 +136,42 @@ export default function NewsFeed() {
         })
         .map(cluster => {
           const summary = Array.isArray(cluster.summaries) ? cluster.summaries[0] : cluster.summaries;
-          const category = cluster.category || (cluster.representative_article as any)?.category || 'General';
+          const repArticle = cluster.representative_article as unknown as { category: string } | null;
+          const cat = cluster.category || repArticle?.category || 'General';
 
           return {
             id: cluster.id,
-            title: summary.title || cluster.label,
+            title: (summary as Record<string, unknown>).title as string || cluster.label,
             published_at: cluster.published_on || cluster.created_at,
-            category: category,
+            category: cat,
             final_score: cluster.final_score,
             image_url: cluster.image_url,
             source_name: 'Nexus Synthesis',
             cluster_id: cluster.id,
             summary_short: JSON.stringify({
-              tldr: summary.content_tldr,
-              full: summary.content_full,
-              analysis: summary.content_analysis,
+              tldr: (summary as Record<string, unknown>).content_tldr,
+              full: (summary as Record<string, unknown>).content_full,
+              analysis: (summary as Record<string, unknown>).content_analysis,
               isFullSynthesis: true,
-              sourceCount: summary.source_count
+              sourceCount: (summary as Record<string, unknown>).source_count,
             }),
-            source_count: summary.source_count
+            source_count: (summary as Record<string, unknown>).source_count as number | null,
           };
         });
 
       setItems(mappedItems);
-
-      // Only select the first item on initial load, not on refresh
-      if (mappedItems.length > 0 && typeof window !== 'undefined' && window.innerWidth >= 1024 && items.length === 0) {
-        setSelectedId(mappedItems[0].id);
-      }
     } else {
       console.error("Fetch error:", error);
     }
     setLoading(false);
-  }, []); // Remove items dependency to avoid re-triggering logic unnecessarily
+  }, []);
 
+  // Auto-select premier article sur desktop au montage initial
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    if (items.length > 0 && typeof window !== 'undefined' && window.innerWidth >= 1024 && !selectedId) {
+      setSelectedId(items[0].id);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 1. Base Filter (Time & Search) - Defines available items
   const baseItems = useMemo(() => {
