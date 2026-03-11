@@ -26,8 +26,28 @@ type CandidateArticle = {
 
 type Bucket = { clusters: number; articles: number };
 
+const CACHE_TTL = 15000; // 15 seconds cache
+
+// Global cache object to survive hot-reloads and cache across requests
+const globalCache = (globalThis as any) as {
+  adminStatsCache?: Map<string, { data: any; timestamp: number }>;
+};
+
+if (!globalCache.adminStatsCache) {
+  globalCache.adminStatsCache = new Map();
+}
+
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
+
+  // Create cache key based on URL and params
+  const cacheKey = req.url;
+  const cached = globalCache.adminStatsCache?.get(cacheKey);
+
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return NextResponse.json(cached.data);
+  }
+
   const minSourcesRaw = searchParams.get('minSources');
   const minScoreRaw = searchParams.get('minScore');
   const minSourcesParsed = minSourcesRaw !== null ? parseInt(minSourcesRaw, 10) : undefined;
@@ -239,8 +259,7 @@ export async function GET(req: Request) {
     const relevantClusters = relevantClustersRes.count || 0;
     const relevantGapClusters = relevantClusters - relevantDecomposedClusters;
 
-    // 5. Return enriched stats
-    return NextResponse.json({
+    const responsePayload = {
       total: totalRes.count || 0,
       pendingEmbedding: peRes.count || 0,
       embedded: eRes.count || 0,
@@ -275,7 +294,17 @@ export async function GET(req: Request) {
       clusterCount: totalClustersRes.count || 0,
       multiArticleClusters,
       lastSync: lastArticleRes.data?.created_at || null,
-    });
+    };
+
+    // Save to cache
+    if (globalCache.adminStatsCache) {
+      globalCache.adminStatsCache.set(cacheKey, {
+        data: responsePayload,
+        timestamp: Date.now(),
+      });
+    }
+
+    return NextResponse.json(responsePayload);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: 500 });
