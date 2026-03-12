@@ -89,7 +89,7 @@ export async function runProcess(options: ProcessOptions = {}): Promise<ProcessR
     type: 'process',
     step,
     profile: options.executionProfile,
-    trigger: options.executionProfile === 'manual' ? 'manual' : options.executionProfile === 'gha' ? 'cron' : 'api',
+    trigger: options.executionProfile === 'manual' ? 'manual' : ['gha', 'rpi'].includes(options.executionProfile || '') ? 'cron' : 'api',
   });
 
   const startTime = Date.now();

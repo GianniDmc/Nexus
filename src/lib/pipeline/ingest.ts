@@ -250,7 +250,7 @@ export async function runIngest(options: IngestOptions = {}): Promise<IngestResu
   const pipelineRunId = await startPipelineRun({
     type: 'ingest',
     profile: options.executionProfile,
-    trigger: options.executionProfile === 'manual' ? 'manual' : options.executionProfile === 'gha' ? 'cron' : 'api',
+    trigger: options.executionProfile === 'manual' ? 'manual' : ['gha', 'rpi'].includes(options.executionProfile || '') ? 'cron' : 'api',
   });
 
   try {
