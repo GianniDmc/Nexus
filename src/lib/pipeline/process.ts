@@ -2,6 +2,7 @@ import { getServiceSupabase } from '../supabase-admin';
 import { type AIOverrideConfig } from '../ai';
 import { startProcessing, shouldStopProcessing, finishProcessing, updateProgress } from '../processing-state';
 import { getPublicationConfig } from '../publication-rules';
+import { startPipelineRun, finishPipelineRun } from '../pipeline-runs';
 import { resolveProcessExecutionPolicy } from './execution-policy';
 import { runEmbeddingStep } from './steps/embedding-step';
 import { runClusteringStep } from './steps/clustering-step';
@@ -84,6 +85,13 @@ export async function runProcess(options: ProcessOptions = {}): Promise<ProcessR
   const { processingLimit, llmDelayMs } = executionPolicy;
   const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+  const pipelineRunId = await startPipelineRun({
+    type: 'process',
+    step,
+    profile: options.executionProfile,
+    trigger: options.executionProfile === 'manual' ? 'manual' : options.executionProfile === 'gha' ? 'cron' : 'api',
+  });
+
   const startTime = Date.now();
   let timeWarningLogged = false;
   let timeBudgetReached = false;
@@ -134,6 +142,13 @@ export async function runProcess(options: ProcessOptions = {}): Promise<ProcessR
     const elapsedMs = Date.now() - startTime;
     log(`[PROCESS] ✅ Step '${step}' ended. Elapsed: ${Math.round(elapsedMs / 1000)}s${timeBudgetReached ? ' (Time Budget Reached)' : ''}`);
 
+    await finishPipelineRun({
+      id: pipelineRunId,
+      status: 'success',
+      durationMs: elapsedMs,
+      result: { ...results, timeBudgetReached },
+    });
+
     return {
       success: true,
       step,
@@ -145,6 +160,14 @@ export async function runProcess(options: ProcessOptions = {}): Promise<ProcessR
     const elapsedMs = Date.now() - startTime;
     const message = error instanceof Error ? error.message : 'Unknown error';
     log(`[PROCESS] ❌ Error in step '${step}' after ${Math.round(elapsedMs / 1000)}s: ${message}`);
+
+    await finishPipelineRun({
+      id: pipelineRunId,
+      status: 'error',
+      durationMs: elapsedMs,
+      error: message,
+      result: results,
+    });
 
     if (message.includes('429') || message.toLowerCase().includes('rate limit')) {
       return { success: false, error: message, retryAfter: 30, step, elapsedMs, timeBudgetReached, processed: results };

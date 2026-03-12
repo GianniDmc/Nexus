@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { getServiceSupabase } from '../supabase-admin';
 import { scrapeArticle } from '../scraper';
 import { getIngestionCutoff, PUBLICATION_RULES } from '../publication-rules';
+import { startPipelineRun, finishPipelineRun } from '../pipeline-runs';
 import { resolveIngestExecutionPolicy, type ExecutionProfile } from './execution-policy';
 
 // Configuration du parser avec un User-Agent pour éviter les blocages (403/404)
@@ -245,6 +246,13 @@ export async function runIngest(options: IngestOptions = {}): Promise<IngestResu
 
   const sourceFilter = options.sourceFilter;
 
+  const ingestStartTime = Date.now();
+  const pipelineRunId = await startPipelineRun({
+    type: 'ingest',
+    profile: options.executionProfile,
+    trigger: options.executionProfile === 'manual' ? 'manual' : options.executionProfile === 'gha' ? 'cron' : 'api',
+  });
+
   try {
     let query = supabase.from('sources').select('*').eq('is_active', true);
 
@@ -287,6 +295,13 @@ export async function runIngest(options: IngestOptions = {}): Promise<IngestResu
       }
     }
 
+    await finishPipelineRun({
+      id: pipelineRunId,
+      status: 'success',
+      durationMs: Date.now() - ingestStartTime,
+      result: { articlesIngested: totalAdded, failedSources: allErrors.length, sourceFilter: sourceFilter ?? null },
+    });
+
     return {
       success: true,
       articlesIngested: totalAdded,
@@ -294,6 +309,13 @@ export async function runIngest(options: IngestOptions = {}): Promise<IngestResu
     };
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
+
+    await finishPipelineRun({
+      id: pipelineRunId,
+      status: 'error',
+      error: message,
+    });
+
     return {
       success: false,
       articlesIngested: 0,

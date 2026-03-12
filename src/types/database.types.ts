@@ -163,6 +163,51 @@ export type Database = {
           },
         ]
       }
+      pipeline_runs: {
+        Row: {
+          created_at: string
+          duration_ms: number | null
+          error: string | null
+          finished_at: string | null
+          id: string
+          profile: string | null
+          result: Json | null
+          started_at: string
+          status: string
+          step: string | null
+          trigger: string | null
+          type: string
+        }
+        Insert: {
+          created_at?: string
+          duration_ms?: number | null
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          profile?: string | null
+          result?: Json | null
+          started_at?: string
+          status?: string
+          step?: string | null
+          trigger?: string | null
+          type: string
+        }
+        Update: {
+          created_at?: string
+          duration_ms?: number | null
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          profile?: string | null
+          result?: Json | null
+          started_at?: string
+          status?: string
+          step?: string | null
+          trigger?: string | null
+          type?: string
+        }
+        Relationships: []
+      }
       sources: {
         Row: {
           category: string | null
